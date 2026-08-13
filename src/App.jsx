@@ -298,6 +298,7 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [authInfo, setAuthInfo] = useState("");
   const [showAuthForm, setShowAuthForm] = useState(false);
 
   useEffect(() => {
@@ -326,6 +327,7 @@ export default function App() {
 
   const handleAuth = async () => {
     setAuthError("");
+    setAuthInfo("");
     if (!authEmail.includes("@") || authPassword.length < 6) {
       setAuthError("Enter a valid email and a password of 6+ characters.");
       return;
@@ -342,10 +344,23 @@ export default function App() {
         return;
       }
       // Create the matching profiles row (id must equal auth.uid()).
+      // Uses upsert so retrying signup on the same account doesn't error.
       if (data.user) {
         await supabase
           .from("profiles")
-          .insert({ id: data.user.id, email: authEmail });
+          .upsert({ id: data.user.id, email: authEmail });
+      }
+      // If email confirmation is still required on the Supabase project,
+      // signUp succeeds but returns no session yet — the account exists
+      // but can't sign in until the confirmation link is clicked (or the
+      // project owner turns off "Confirm email" in Supabase Auth settings).
+      if (!data.session) {
+        setAuthLoading(false);
+        setAuthInfo(
+          "Account created. If sign-in doesn't work right away, email confirmation may still be required on this project — check your inbox, or try again shortly."
+        );
+        setAuthPassword("");
+        return;
       }
     } else {
       const { error } = await supabase.auth.signInWithPassword({
@@ -354,7 +369,11 @@ export default function App() {
       });
       if (error) {
         setAuthLoading(false);
-        setAuthError(error.message);
+        setAuthError(
+          error.message.toLowerCase().includes("confirm")
+            ? "This account's email hasn't been confirmed yet. Check your inbox for a confirmation link, or check back shortly."
+            : error.message
+        );
         return;
       }
     }
@@ -406,7 +425,7 @@ export default function App() {
           border: `1px solid ${C.accent}`,
           background: "rgba(232,99,28,0.08)",
           padding: "10px 12px",
-          borderRadius: 2,
+          borderRadius: 4,
           fontFamily: "'JetBrains Mono', monospace",
           fontSize: 12.5,
           color: C.text,
@@ -425,28 +444,56 @@ export default function App() {
         minHeight: "100vh",
         background: C.bg,
         backgroundImage: `
+          radial-gradient(ellipse at 20% 0%, rgba(63,167,150,0.07), transparent 55%),
+          radial-gradient(ellipse at 100% 100%, rgba(232,99,28,0.06), transparent 50%),
           linear-gradient(${C.lineFaint} 1px, transparent 1px),
           linear-gradient(90deg, ${C.lineFaint} 1px, transparent 1px)
         `,
-        backgroundSize: "28px 28px",
+        backgroundSize: "auto, auto, 28px 28px, 28px 28px",
         color: C.text,
         fontFamily: "'Space Grotesk', sans-serif",
         display: "flex",
         flexDirection: "column",
+        position: "relative",
       }}
     >
       <style>{FONTS}</style>
 
+      {/* Corner registration marks — drafting-sheet detail */}
+      {[
+        { top: 10, left: 10, borderRight: 0, borderBottom: 0 },
+        { top: 10, right: 10, borderLeft: 0, borderBottom: 0 },
+        { bottom: 10, left: 10, borderRight: 0, borderTop: 0 },
+        { bottom: 10, right: 10, borderLeft: 0, borderTop: 0 },
+      ].map((pos, i) => (
+        <div
+          key={i}
+          style={{
+            position: "fixed",
+            width: 14,
+            height: 14,
+            border: `1.5px solid ${C.line}`,
+            opacity: 0.6,
+            pointerEvents: "none",
+            zIndex: 50,
+            ...pos,
+          }}
+        />
+      ))}
+
       {/* Header */}
       <header
         style={{
-          borderBottom: `1px solid ${C.line}`,
-          padding: "18px 20px",
+          borderBottom: `2px solid ${C.line}`,
+          boxShadow: `0 1px 0 0 ${C.lineFaint}`,
+          padding: "20px 22px",
           display: "flex",
           alignItems: "baseline",
           justifyContent: "space-between",
           flexWrap: "wrap",
           gap: 8,
+          background:
+            "linear-gradient(180deg, rgba(255,255,255,0.02), transparent)",
         }}
       >
         <div>
@@ -454,13 +501,25 @@ export default function App() {
             style={{
               fontFamily: "'JetBrains Mono', monospace",
               fontSize: 11,
-              letterSpacing: "0.14em",
-              color: C.textDim,
+              letterSpacing: "0.18em",
+              color: C.accent,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
             }}
           >
+            <span style={{ fontSize: 13 }}>⌖</span>
             BUILD SEQUENCE — GROUND UP
           </div>
-          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
+          <div
+            style={{
+              fontSize: 24,
+              fontWeight: 700,
+              marginTop: 4,
+              letterSpacing: "-0.01em",
+              textShadow: "0 0 24px rgba(232,99,28,0.25)",
+            }}
+          >
             Foundation-to-Finish Guide
           </div>
         </div>
@@ -470,16 +529,47 @@ export default function App() {
             fontSize: 12,
             color: C.textDim,
             textAlign: "right",
+            minWidth: 150,
           }}
         >
           OVERALL PROGRESS
-          <div style={{ color: C.accent, fontSize: 16, fontWeight: 700 }}>
-            {overallProgress.pct}%
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              justifyContent: "flex-end",
+              marginTop: 4,
+            }}
+          >
+            <div
+              style={{
+                width: 70,
+                height: 6,
+                background: C.bgPanelAlt,
+                border: `1px solid ${C.line}`,
+                borderRadius: 3,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${overallProgress.pct}%`,
+                  height: "100%",
+                  background: `linear-gradient(90deg, ${C.accentDim}, ${C.accent})`,
+                  boxShadow: `0 0 8px ${C.accent}`,
+                  transition: "width 0.3s ease",
+                }}
+              />
+            </div>
+            <span style={{ color: C.accent, fontSize: 16, fontWeight: 700 }}>
+              {overallProgress.pct}%
+            </span>
           </div>
           {session && (
             <div
               style={{
-                marginTop: 6,
+                marginTop: 8,
                 fontSize: 11,
                 color: isPaid ? C.ok : C.textDim,
               }}
@@ -511,15 +601,18 @@ export default function App() {
           style={{
             width: 250,
             minWidth: 200,
-            borderRight: `1px solid ${C.line}`,
+            borderRight: `2px solid ${C.line}`,
             padding: "16px 0",
             overflowY: "auto",
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.015), transparent 30%)",
           }}
         >
           {STAGES.map((s) => {
             const p = stageProgress(s);
             const isActive = s.id === active;
             const complete = p.done === p.total;
+            const stagePct = p.total ? Math.round((p.done / p.total) * 100) : 0;
             return (
               <button
                 key={s.id}
@@ -528,14 +621,20 @@ export default function App() {
                   display: "block",
                   width: "100%",
                   textAlign: "left",
-                  background: isActive ? C.bgPanel : "transparent",
+                  background: isActive
+                    ? `linear-gradient(90deg, ${C.bgPanel}, ${C.bgPanelAlt})`
+                    : "transparent",
                   border: "none",
                   borderLeft: isActive
                     ? `3px solid ${C.accent}`
                     : "3px solid transparent",
+                  boxShadow: isActive
+                    ? "inset 0 0 20px rgba(232,99,28,0.05)"
+                    : "none",
                   padding: "10px 16px",
                   cursor: "pointer",
                   color: C.text,
+                  transition: "background 0.15s ease",
                 }}
               >
                 <div
@@ -566,6 +665,7 @@ export default function App() {
                   style={{
                     fontSize: 13.5,
                     marginTop: 3,
+                    marginBottom: 6,
                     fontWeight: isActive ? 600 : 400,
                     lineHeight: 1.3,
                     color: !isUnlocked(s.id) ? C.textDim : C.text,
@@ -573,6 +673,26 @@ export default function App() {
                 >
                   {s.name}
                 </div>
+                {isUnlocked(s.id) && (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: 3,
+                      background: "rgba(143,168,189,0.12)",
+                      borderRadius: 4,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${stagePct}%`,
+                        height: "100%",
+                        background: complete ? C.ok : C.accentDim,
+                        transition: "width 0.25s ease",
+                      }}
+                    />
+                  </div>
+                )}
               </button>
             );
           })}
@@ -623,8 +743,9 @@ export default function App() {
                 border: `1px solid ${C.accent}`,
                 background: "rgba(232,99,28,0.06)",
                 padding: 20,
-                borderRadius: 2,
+                borderRadius: 4,
                 maxWidth: 480,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
               }}
             >
               <div
@@ -691,7 +812,7 @@ export default function App() {
                       padding: "9px 10px",
                       fontFamily: "'JetBrains Mono', monospace",
                       fontSize: 13,
-                      borderRadius: 2,
+                      borderRadius: 4,
                     }}
                   />
                   <button
@@ -768,7 +889,7 @@ export default function App() {
                       padding: "9px 10px",
                       fontFamily: "'JetBrains Mono', monospace",
                       fontSize: 13,
-                      borderRadius: 2,
+                      borderRadius: 4,
                       boxSizing: "border-box",
                     }}
                   />
@@ -787,7 +908,7 @@ export default function App() {
                       padding: "9px 10px",
                       fontFamily: "'JetBrains Mono', monospace",
                       fontSize: 13,
-                      borderRadius: 2,
+                      borderRadius: 4,
                       boxSizing: "border-box",
                     }}
                   />
@@ -814,6 +935,19 @@ export default function App() {
                       {authError}
                     </div>
                   )}
+                  {authInfo && (
+                    <div
+                      style={{
+                        color: C.ok,
+                        fontSize: 12,
+                        marginTop: 8,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {authInfo}
+                    </div>
+                  )}
                 </div>
               )}
               {waitlistError && (
@@ -837,10 +971,11 @@ export default function App() {
               style={{
                 marginTop: 18,
                 border: `1px solid ${C.line}`,
-                background: C.bgPanelAlt,
+                background: `linear-gradient(135deg, ${C.bgPanelAlt}, ${C.bgPanel})`,
                 padding: 16,
-                borderRadius: 2,
+                borderRadius: 4,
                 maxWidth: 640,
+                boxShadow: "0 6px 20px rgba(0,0,0,0.2)",
               }}
             >
               <div
@@ -881,7 +1016,7 @@ export default function App() {
                           ? "rgba(232,99,28,0.15)"
                           : "transparent",
                         color: C.text,
-                        borderRadius: 2,
+                        borderRadius: 4,
                         cursor: "pointer",
                       }}
                     >
@@ -934,7 +1069,6 @@ export default function App() {
                       <span
                         style={{
                           color: done ? C.ok : C.text,
-                          textDecoration: done ? "line-through" : "none",
                           lineHeight: 1.4,
                         }}
                       >
@@ -1049,7 +1183,7 @@ function navBtnStyle(disabled) {
     border: `1px solid ${disabled ? "#2C5A82" : "#E8631C"}`,
     color: disabled ? "#8FA8BD" : "#EDEFF2",
     cursor: disabled ? "not-allowed" : "pointer",
-    borderRadius: 2,
+    borderRadius: 4,
     opacity: disabled ? 0.5 : 1,
   };
 }
