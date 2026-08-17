@@ -38,12 +38,127 @@ const C = {
   accent: "#1D4ED8", // primary brand / CTA blue
   accentDim: "#1E40AF",
   accentSoft: "rgba(29,78,216,0.08)",
+  yellow: "#D9A017", // safety-yellow, used sparingly as a second accent
+  yellowSoft: "rgba(217,160,23,0.10)",
   ok: "#15803D",
   warn: "#B91C1C", // locked / error / caution
   warnSoft: "rgba(185,28,28,0.06)",
 };
 
+// Subtle blue + yellow color wash behind the white/gray base. Used on
+// full-page backgrounds via backgroundImage — kept low-opacity so text
+// contrast stays clean.
+const BG_WASH = `
+  radial-gradient(ellipse 700px 500px at 10% -5%, rgba(29,78,216,0.07), transparent 60%),
+  radial-gradient(ellipse 600px 500px at 100% 15%, rgba(217,160,23,0.08), transparent 55%),
+  radial-gradient(ellipse 500px 400px at 15% 100%, rgba(217,160,23,0.05), transparent 55%),
+  radial-gradient(ellipse 600px 500px at 100% 100%, rgba(29,78,216,0.05), transparent 55%)
+`;
+
 const FONT = "'Times New Roman', Times, serif";
+
+/* ---------- Simple line-art civil engineering sketches ----------
+ * Plain stroke-only SVGs (no fill) so they read as sketches, not
+ * clip-art. Used both small (feature icons) and large + faint
+ * (decorative background elements on the landing page). */
+function IconHardHat({ size = 40, color = C.accent, opacity = 1 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
+      <path d="M8 44 C8 24 18 16 32 16 C46 16 56 24 56 44" />
+      <line x1="4" y1="44" x2="60" y2="44" />
+      <rect x="26" y="7" width="12" height="9" rx="2" />
+    </svg>
+  );
+}
+
+function IconSetSquare({ size = 40, color = C.accent, opacity = 1 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
+      <path d="M10 54 L10 10 L54 54 Z" />
+      <line x1="10" y1="20" x2="19" y2="20" />
+      <line x1="10" y1="30" x2="19" y2="30" />
+      <line x1="10" y1="40" x2="19" y2="40" />
+    </svg>
+  );
+}
+
+function IconLevel({ size = 40, color = C.accent, opacity = 1 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
+      <rect x="5" y="26" width="54" height="12" rx="2" />
+      <circle cx="32" cy="32" r="4" />
+      <line x1="17" y1="26" x2="17" y2="38" />
+      <line x1="47" y1="26" x2="47" y2="38" />
+    </svg>
+  );
+}
+
+function IconClipboard({ size = 40, color = C.accent, opacity = 1 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
+      <rect x="14" y="10" width="36" height="48" rx="3" />
+      <rect x="24" y="6" width="16" height="8" rx="2" />
+      <line x1="22" y1="26" x2="42" y2="26" />
+      <line x1="22" y1="36" x2="42" y2="36" />
+      <line x1="22" y1="46" x2="36" y2="46" />
+    </svg>
+  );
+}
+
+function IconCrane({ size = 40, color = C.accent, opacity = 1 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
+      <line x1="12" y1="58" x2="12" y2="10" />
+      <line x1="12" y1="10" x2="52" y2="10" />
+      <line x1="14" y1="18" x2="22" y2="10" />
+      <line x1="52" y1="10" x2="52" y2="22" />
+      <line x1="4" y1="58" x2="20" y2="58" />
+    </svg>
+  );
+}
+
+function IconBlueprintRoll({ size = 40, color = C.accent, opacity = 1 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
+      <rect x="10" y="14" width="44" height="30" rx="2" />
+      <line x1="18" y1="22" x2="30" y2="22" />
+      <line x1="18" y1="28" x2="46" y2="28" />
+      <line x1="18" y1="34" x2="38" y2="34" />
+      <ellipse cx="10" cy="29" rx="4" ry="15" />
+      <ellipse cx="54" cy="29" rx="4" ry="15" />
+    </svg>
+  );
+}
+
+// Faint, large, rotated sketches scattered behind the landing page's
+// content — decorative only (pointer-events: none, low opacity).
+function LandingSketches() {
+  const items = [
+    { Icon: IconSetSquare, top: "6%", left: "3%", size: 130, rot: -8, color: C.accent },
+    { Icon: IconHardHat, top: "8%", right: "4%", size: 110, rot: 10, color: C.yellow },
+    { Icon: IconLevel, bottom: "16%", left: "6%", size: 120, rot: 6, color: C.yellow },
+    { Icon: IconCrane, bottom: "4%", right: "6%", size: 150, rot: -4, color: C.accent },
+  ];
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
+      {items.map((it, i) => (
+        <div
+          key={i}
+          style={{
+            position: "absolute",
+            top: it.top,
+            left: it.left,
+            right: it.right,
+            bottom: it.bottom,
+            transform: `rotate(${it.rot}deg)`,
+          }}
+        >
+          <it.Icon size={it.size} color={it.color} opacity={0.1} />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /* ---------- Content model ---------- */
 const STAGES = [
@@ -443,86 +558,27 @@ export default function App() {
     setPage("detail");
   };
 
-  /* ---------- Shared small components (inline, share App's state) ---------- */
+  /* AuthPanel and AccountBar are defined outside App() (near the
+     bottom of this file) so their component identity stays stable
+     across renders — see the note down there for why that matters. */
 
-  const AuthPanel = () => (
-    <div style={{ maxWidth: 360 }}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        <button
-          onClick={() => setAuthMode("signin")}
-          style={tabBtnStyle(authMode === "signin")}
-        >
-          SIGN IN
-        </button>
-        <button
-          onClick={() => setAuthMode("signup")}
-          style={tabBtnStyle(authMode === "signup")}
-        >
-          CREATE ACCOUNT
-        </button>
-      </div>
-      <input
-        type="email"
-        placeholder="you@email.com"
-        value={authEmail}
-        onChange={(e) => setAuthEmail(e.target.value)}
-        style={inputStyle}
-      />
-      <input
-        type="password"
-        placeholder="password (6+ characters)"
-        value={authPassword}
-        onChange={(e) => setAuthPassword(e.target.value)}
-        style={{ ...inputStyle, marginBottom: 12 }}
-      />
-      <button
-        onClick={handleAuth}
-        disabled={authLoading}
-        style={primaryBtnStyle(authLoading)}
-      >
-        {authLoading
-          ? "..."
-          : authMode === "signup"
-          ? "Create account"
-          : "Sign in"}
-      </button>
-      {authError && <div style={errorTextStyle}>{authError}</div>}
-      {authInfo && <div style={infoTextStyle}>{authInfo}</div>}
-    </div>
-  );
-
-  const AccountBar = () => (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 14,
-        fontSize: 13,
-        color: C.textDim,
-      }}
-    >
-      <span>
-        {session?.user?.email}{" "}
-        {isPaid
-          ? "· Full access"
-          : unlockedStages.length > 0
-          ? `· ${unlockedStages.length} stage${
-              unlockedStages.length > 1 ? "s" : ""
-            } unlocked`
-          : "· Free"}
-      </span>
-      <button onClick={handleSignOut} style={linkBtnStyle}>
-        Sign out
-      </button>
-    </div>
-  );
 
   /* ================= RENDER ================= */
 
   // ---- Landing page (no session) ----
   if (!session) {
     return (
-      <div style={{ minHeight: "100vh", background: C.bg, fontFamily: FONT, color: C.text }}>
+      <div
+        style={{
+          minHeight: "100vh",
+          background: C.bg,
+          backgroundImage: BG_WASH,
+          fontFamily: FONT,
+          color: C.text,
+          position: "relative",
+        }}
+      >
+        <LandingSketches />
         <header
           style={{
             borderBottom: `1px solid ${C.border}`,
@@ -530,16 +586,22 @@ export default function App() {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            background: C.panel,
+            background: "rgba(255,255,255,0.85)",
+            backdropFilter: "blur(4px)",
+            position: "relative",
+            zIndex: 1,
           }}
         >
-          <div style={{ fontSize: 20, fontWeight: 700 }}>Build Sequence</div>
+          <div style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+            <IconBlueprintRoll size={22} color={C.accent} />
+            Build Sequence
+          </div>
           <div style={{ fontSize: 12.5, color: C.textDim, letterSpacing: "0.06em" }}>
             GROUND UP — FOUNDATION TO FINISH
           </div>
         </header>
 
-        <main style={{ maxWidth: 900, margin: "0 auto", padding: "48px 24px 80px" }}>
+        <main style={{ maxWidth: 900, margin: "0 auto", padding: "48px 24px 80px", position: "relative", zIndex: 1 }}>
           <h1 style={{ fontSize: 34, lineHeight: 1.25, marginBottom: 14, fontWeight: 700 }}>
             A construction guide that walks with you from cleared land to
             handover — one decision at a time.
@@ -562,14 +624,23 @@ export default function App() {
               {
                 title: "Decision-driven",
                 body: "Your soil type changes the foundation guidance. Your budget changes the roofing guidance. Your floor count changes structural guidance.",
+                Icon: IconSetSquare,
+                iconColor: C.accent,
+                bg: C.accentSoft,
               },
               {
                 title: "Site checklists",
                 body: "Every stage ships with a practical, tickable checklist — not just theory.",
+                Icon: IconClipboard,
+                iconColor: C.yellow,
+                bg: C.yellowSoft,
               },
               {
                 title: "Common site errors",
                 body: "Each stage flags the mistakes that actually happen on real sites, not textbook trivia.",
+                Icon: IconHardHat,
+                iconColor: C.accent,
+                bg: C.accentSoft,
               },
             ].map((f, i) => (
               <div
@@ -582,7 +653,21 @@ export default function App() {
                   boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                 }}
               >
-                <div style={{ fontWeight: 700, marginBottom: 6, color: C.accent }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 8,
+                    background: f.bg,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: 12,
+                  }}
+                >
+                  <f.Icon size={26} color={f.iconColor} />
+                </div>
+                <div style={{ fontWeight: 700, marginBottom: 6, color: C.text }}>
                   {f.title}
                 </div>
                 <div style={{ fontSize: 14, color: C.textDim, lineHeight: 1.5 }}>
@@ -609,7 +694,18 @@ export default function App() {
               Stages 1–{FREE_LIMIT} are free for everyone once you're signed
               in. No card required to create an account.
             </div>
-            <AuthPanel />
+            <AuthPanel
+              authMode={authMode}
+              setAuthMode={setAuthMode}
+              authEmail={authEmail}
+              setAuthEmail={setAuthEmail}
+              authPassword={authPassword}
+              setAuthPassword={setAuthPassword}
+              authLoading={authLoading}
+              authError={authError}
+              authInfo={authInfo}
+              handleAuth={handleAuth}
+            />
           </div>
         </main>
       </div>
@@ -619,7 +715,7 @@ export default function App() {
   // ---- Stage overview (signed in, page === "overview") ----
   if (page === "overview") {
     return (
-      <div style={{ minHeight: "100vh", background: C.bg, fontFamily: FONT, color: C.text }}>
+      <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text }}>
         <header
           style={{
             borderBottom: `1px solid ${C.border}`,
@@ -629,11 +725,15 @@ export default function App() {
             alignItems: "center",
             flexWrap: "wrap",
             gap: 10,
-            background: C.panel,
+            background: "rgba(255,255,255,0.85)",
+            backdropFilter: "blur(4px)",
           }}
         >
-          <div style={{ fontSize: 20, fontWeight: 700 }}>Build Sequence</div>
-          <AccountBar />
+          <div style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+            <IconBlueprintRoll size={22} color={C.accent} />
+            Build Sequence
+          </div>
+          <AccountBar session={session} isPaid={isPaid} unlockedStages={unlockedStages} handleSignOut={handleSignOut} />
         </header>
 
         <main style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px 60px" }}>
@@ -711,7 +811,7 @@ export default function App() {
   const floorsInfo = decisions.floors ? FLOORS_TEXT[decisions.floors] : null;
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: FONT, color: C.text }}>
+    <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text }}>
       <header
         style={{
           borderBottom: `1px solid ${C.border}`,
@@ -721,7 +821,8 @@ export default function App() {
           alignItems: "center",
           flexWrap: "wrap",
           gap: 10,
-          background: C.panel,
+          background: "rgba(255,255,255,0.85)",
+          backdropFilter: "blur(4px)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
@@ -730,7 +831,7 @@ export default function App() {
           </button>
           <div style={{ fontSize: 20, fontWeight: 700 }}>Build Sequence</div>
         </div>
-        <AccountBar />
+        <AccountBar session={session} isPaid={isPaid} unlockedStages={unlockedStages} handleSignOut={handleSignOut} />
       </header>
 
       <main style={{ maxWidth: 760, margin: "0 auto", padding: "28px 24px 60px" }}>
@@ -945,6 +1046,109 @@ export default function App() {
           </button>
         </div>
       </main>
+    </div>
+  );
+}
+
+/**
+ * AuthPanel / AccountBar — defined OUTSIDE App() on purpose.
+ *
+ * Bug this fixes: when a component like this was defined *inside*
+ * App() (as `const AuthPanel = () => (...)`), a brand-new function —
+ * and therefore a brand-new component type, as far as React is
+ * concerned — was created on every single App() re-render. Typing one
+ * character into the email field changes state, which re-renders
+ * App(), which redefines AuthPanel from scratch, which makes React
+ * unmount the old <input> and mount a fresh one. On mobile that
+ * unmount/remount is exactly what dismisses the keyboard after every
+ * keystroke. Defining these as stable, top-level components (and
+ * passing state in as props instead of closing over it) keeps their
+ * identity fixed across renders, so the <input> element itself is
+ * never torn down — focus and the keyboard stay put.
+ */
+function AuthPanel({
+  authMode,
+  setAuthMode,
+  authEmail,
+  setAuthEmail,
+  authPassword,
+  setAuthPassword,
+  authLoading,
+  authError,
+  authInfo,
+  handleAuth,
+}) {
+  return (
+    <div style={{ maxWidth: 360 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <button
+          onClick={() => setAuthMode("signin")}
+          style={tabBtnStyle(authMode === "signin")}
+        >
+          SIGN IN
+        </button>
+        <button
+          onClick={() => setAuthMode("signup")}
+          style={tabBtnStyle(authMode === "signup")}
+        >
+          CREATE ACCOUNT
+        </button>
+      </div>
+      <input
+        type="email"
+        placeholder="you@email.com"
+        value={authEmail}
+        onChange={(e) => setAuthEmail(e.target.value)}
+        style={inputStyle}
+      />
+      <input
+        type="password"
+        placeholder="password (6+ characters)"
+        value={authPassword}
+        onChange={(e) => setAuthPassword(e.target.value)}
+        style={{ ...inputStyle, marginBottom: 12 }}
+      />
+      <button
+        onClick={handleAuth}
+        disabled={authLoading}
+        style={primaryBtnStyle(authLoading)}
+      >
+        {authLoading
+          ? "..."
+          : authMode === "signup"
+          ? "Create account"
+          : "Sign in"}
+      </button>
+      {authError && <div style={errorTextStyle}>{authError}</div>}
+      {authInfo && <div style={infoTextStyle}>{authInfo}</div>}
+    </div>
+  );
+}
+
+function AccountBar({ session, isPaid, unlockedStages, handleSignOut }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        fontSize: 13,
+        color: C.textDim,
+      }}
+    >
+      <span>
+        {session?.user?.email}{" "}
+        {isPaid
+          ? "· Full access"
+          : unlockedStages.length > 0
+          ? `· ${unlockedStages.length} stage${
+              unlockedStages.length > 1 ? "s" : ""
+            } unlocked`
+          : "· Free"}
+      </span>
+      <button onClick={handleSignOut} style={linkBtnStyle}>
+        Sign out
+      </button>
     </div>
   );
 }
