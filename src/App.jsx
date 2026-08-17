@@ -316,14 +316,16 @@ export default function App() {
     }
     supabase
       .from("profiles")
-      .select("id, email, is_paid")
+      .select("id, email, is_paid, unlocked_stages")
       .eq("id", session.user.id)
       .single()
       .then(({ data }) => setProfile(data || null));
   }, [session]);
 
-  const isPaid = !!profile?.is_paid;
-  const isUnlocked = (stageId) => stageId <= FREE_LIMIT || isPaid;
+  const isPaid = !!profile?.is_paid; // bought the full bundle
+  const unlockedStages = profile?.unlocked_stages || []; // stages bought individually
+  const isUnlocked = (stageId) =>
+    stageId <= FREE_LIMIT || isPaid || unlockedStages.includes(stageId);
 
   const handleAuth = async () => {
     setAuthError("");
@@ -574,7 +576,14 @@ export default function App() {
                 color: isPaid ? C.ok : C.textDim,
               }}
             >
-              {session.user.email} {isPaid ? "· PAID" : "· FREE"}{" "}
+              {session.user.email}{" "}
+              {isPaid
+                ? "· FULL ACCESS"
+                : unlockedStages.length > 0
+                ? `· ${unlockedStages.length} STAGE${
+                    unlockedStages.length > 1 ? "S" : ""
+                  } UNLOCKED`
+                : "· FREE"}{" "}
               <button
                 onClick={handleSignOut}
                 style={{
@@ -764,14 +773,26 @@ export default function App() {
                   fontSize: 13.5,
                   color: C.textDim,
                   lineHeight: 1.5,
-                  marginBottom: 14,
+                  marginBottom: 6,
                 }}
               >
                 Stages {FREE_LIMIT + 1}–{STAGES.length} (foundation through
-                handover) are still being finished and aren't open to
-                sign-ups yet. Leave your email and you'll hear directly
-                when access opens — no charge, no action needed from you
-                right now.
+                handover) will be available either one stage at a time, or
+                as a full bundle at a discount. Payment isn't live yet —
+                leave your email and you'll hear directly when it opens.
+                No charge, no action needed from you right now.
+              </p>
+              <p
+                style={{
+                  fontSize: 12,
+                  color: C.textDim,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  marginBottom: 14,
+                  opacity: 0.8,
+                }}
+              >
+                This stage individually, or all {STAGES.length - FREE_LIMIT} remaining
+                stages as a bundle — pricing to be confirmed at launch.
               </p>
 
               {session ? (
