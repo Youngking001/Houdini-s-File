@@ -2,42 +2,48 @@
  * Build Sequence — Ground Up
  * -----------------------------------------------------------------
  * An interactive, decision-driven construction guide (site assessment
- * through handover). Two things make this different from a static
- * checklist:
+ * through handover).
  *
- * 1. Branching content: answers recorded in one stage (soil type,
- *    budget tier, floor count) change the guidance shown in later
- *    stages — see `dynamicSummary()` and the SOIL_TEXT / ROOF_TEXT
- *    lookup tables below.
- * 2. Per-stage "common site errors" — practical failure modes, not
- *    just textbook steps.
+ * Structure (v2):
+ *  - Landing view: shown whenever there's no signed-in session. Gives
+ *    an overview of the app and hosts the sign in / sign up form.
+ *  - Stage overview: shown right after sign-in — a grid of all 9
+ *    stages with progress + lock status.
+ *  - Stage detail: a single stage's content, reachable either by
+ *    tapping a card in the overview, or via the dropdown / prev-next
+ *    controls inside detail view itself.
  *
- * All state (checklist progress, decisions, project name) is kept in
- * React state only — nothing persists between page loads yet. See
- * README.md for notes on adding persistent storage.
+ * Branching content: answers recorded in one stage (soil type, budget
+ * tier, floor count) change guidance shown in later stages — see
+ * dynamicSummary() and the SOIL_TEXT / ROOF_TEXT / FLOORS_TEXT lookup
+ * tables below.
+ *
+ * All progress/decision state is kept in React state only — nothing
+ * persists between page loads except account + unlock status, which
+ * live in Supabase (see supabaseClient.js).
  * -----------------------------------------------------------------
  */
 import React, { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 
-/* ---------- Design tokens ---------- */
+/* ---------- Design tokens: clean engineering white/gray + one accent ---------- */
 const C = {
-  bg: "#0F2A43",
-  bgPanel: "#123655",
-  bgPanelAlt: "#0D2438",
-  line: "#2C5A82",
-  lineFaint: "rgba(143,168,189,0.16)",
-  accent: "#E8631C",
-  accentDim: "#B54E17",
-  text: "#EDEFF2",
-  textDim: "#8FA8BD",
-  ok: "#3FA796",
-  warn: "#E8631C",
+  bg: "#F6F7F9",
+  bgAlt: "#EEF0F3",
+  panel: "#FFFFFF",
+  border: "#DDE1E6",
+  borderStrong: "#C3C9D1",
+  text: "#1B1F24",
+  textDim: "#5B6472",
+  accent: "#1D4ED8", // primary brand / CTA blue
+  accentDim: "#1E40AF",
+  accentSoft: "rgba(29,78,216,0.08)",
+  ok: "#15803D",
+  warn: "#B91C1C", // locked / error / caution
+  warnSoft: "rgba(185,28,28,0.06)",
 };
 
-const FONTS = `
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
-`;
+const FONT = "'Times New Roman', Times, serif";
 
 /* ---------- Content model ---------- */
 const STAGES = [
@@ -250,26 +256,38 @@ const ROOF_TEXT = {
     "Roofing material recommendation depends on your budget tier. Set it in Stage 2 to see specific guidance here.",
 };
 
-/* ---------- Component ----------
- * State shape:
- *  - decisions: { soil?, budget?, floors? } — answers from the
- *    decision blocks in Stages 1, 2, and 6. Read by dynamicSummary()
- *    to pick the right guidance text for Stages 4 and 7.
- *  - checks: { "<stageId>-<itemIndex>": true } — flat map of which
- *    checklist items are ticked, keyed per stage so progress can be
- *    computed per-stage and overall (see stageProgress / overallProgress).
- */
-/* Stages 1-FREE_LIMIT are open to everyone; the rest are shown in the
- * nav rail (so the full scope of the app is visible) but gated behind
- * a waitlist prompt instead of content. Raise/lower this number to
- * change how much of the demo is free. */
+// Detailed, storey-specific structural guidance — this replaces the old
+// one-line "3+ storeys, be careful" warning with an actual explanation
+// of what changes at each height.
+const FLOORS_TEXT = {
+  "1": {
+    label: "Single storey",
+    detail:
+      "Standard column, beam, and foundation sizing from your structural drawing applies directly — loads are straightforward and a typical strip or pad foundation (per your soil result in Stage 1) is usually sufficient.",
+  },
+  "2": {
+    label: "Two storeys",
+    detail:
+      "Do not assume ground-floor column and beam sizing simply carries up. The added floor roughly doubles the load path down to the foundation, so beam spans, column sections, and foundation bearing capacity all need to be rechecked for two storeys specifically — confirm this explicitly with your structural engineer rather than reusing single-storey numbers.",
+  },
+  "3+": {
+    label: "Three or more storeys",
+    detail:
+      "This is a different structural regime, not just 'more of the same'. Wind loading — and seismic loading, depending on your location — becomes a real design factor, not a rounding error. Column and beam sizing must be calculated storey by storey, not assumed uniform. A raft or pile foundation is common instead of a simple strip footing, since point loads at the base are significantly higher. Full engineering design, structural drawings, and formal approval are required before construction — this height should not be attempted on a self-build, rule-of-thumb basis.",
+  },
+};
+
 const FREE_LIMIT = 3;
 
 export default function App() {
+  /* ---------- Core state ---------- */
+  const [page, setPage] = useState("landing"); // "landing" | "overview" | "detail"
   const [active, setActive] = useState(1);
   const [projectName, setProjectName] = useState("UNTITLED PROJECT");
   const [decisions, setDecisions] = useState({});
   const [checks, setChecks] = useState({});
+
+  /* ---------- Waitlist (for locked stages) ---------- */
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
   const [waitlistSubmitting, setWaitlistSubmitting] = useState(false);
@@ -290,16 +308,15 @@ export default function App() {
     setWaitlistSubmitted(true);
   };
 
-  /* ---------- Auth: session, profile (is_paid), sign in/up form ---------- */
+  /* ---------- Auth: session, profile (is_paid / unlocked_stages) ---------- */
   const [session, setSession] = useState(null);
-  const [profile, setProfile] = useState(null); // { id, email, is_paid }
+  const [profile, setProfile] = useState(null);
   const [authMode, setAuthMode] = useState("signin"); // "signin" | "signup"
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authInfo, setAuthInfo] = useState("");
-  const [showAuthForm, setShowAuthForm] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -322,8 +339,14 @@ export default function App() {
       .then(({ data }) => setProfile(data || null));
   }, [session]);
 
-  const isPaid = !!profile?.is_paid; // bought the full bundle
-  const unlockedStages = profile?.unlocked_stages || []; // stages bought individually
+  // The moment a session appears while we're still on the landing
+  // page (e.g. right after sign-in), move to the stage overview.
+  useEffect(() => {
+    if (session && page === "landing") setPage("overview");
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isPaid = !!profile?.is_paid;
+  const unlockedStages = profile?.unlocked_stages || [];
   const isUnlocked = (stageId) =>
     stageId <= FREE_LIMIT || isPaid || unlockedStages.includes(stageId);
 
@@ -345,21 +368,15 @@ export default function App() {
         setAuthError(error.message);
         return;
       }
-      // Create the matching profiles row (id must equal auth.uid()).
-      // Uses upsert so retrying signup on the same account doesn't error.
       if (data.user) {
         await supabase
           .from("profiles")
           .upsert({ id: data.user.id, email: authEmail });
       }
-      // If email confirmation is still required on the Supabase project,
-      // signUp succeeds but returns no session yet — the account exists
-      // but can't sign in until the confirmation link is clicked (or the
-      // project owner turns off "Confirm email" in Supabase Auth settings).
       if (!data.session) {
         setAuthLoading(false);
         setAuthInfo(
-          "Account created. If sign-in doesn't work right away, email confirmation may still be required on this project — check your inbox, or try again shortly."
+          "Account created. If sign-in doesn't work right away, email confirmation may still be required — check your inbox, or try again shortly."
         );
         setAuthPassword("");
         return;
@@ -382,13 +399,14 @@ export default function App() {
     setAuthLoading(false);
     setAuthEmail("");
     setAuthPassword("");
-    setShowAuthForm(false);
   };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
+    setPage("landing");
   };
 
+  /* ---------- Progress / content helpers ---------- */
   const stage = STAGES.find((s) => s.id === active);
 
   const toggleCheck = (stageId, idx) => {
@@ -420,791 +438,598 @@ export default function App() {
     return s.summary;
   };
 
-  const floorsWarning =
-    decisions.floors === "3+" ? (
-      <div
-        style={{
-          border: `1px solid ${C.accent}`,
-          background: "rgba(232,99,28,0.08)",
-          padding: "10px 12px",
-          borderRadius: 4,
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 12.5,
-          color: C.text,
-          marginTop: 12,
-        }}
-      >
-        3+ storeys flagged — column, beam, and foundation sizing beyond two
-        storeys should not be estimated from this guide alone. Confirm every
-        member size directly with your structural engineer.
-      </div>
-    ) : null;
+  const goToStage = (id) => {
+    setActive(id);
+    setPage("detail");
+  };
 
-  return (
+  /* ---------- Shared small components (inline, share App's state) ---------- */
+
+  const AuthPanel = () => (
+    <div style={{ maxWidth: 360 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <button
+          onClick={() => setAuthMode("signin")}
+          style={tabBtnStyle(authMode === "signin")}
+        >
+          SIGN IN
+        </button>
+        <button
+          onClick={() => setAuthMode("signup")}
+          style={tabBtnStyle(authMode === "signup")}
+        >
+          CREATE ACCOUNT
+        </button>
+      </div>
+      <input
+        type="email"
+        placeholder="you@email.com"
+        value={authEmail}
+        onChange={(e) => setAuthEmail(e.target.value)}
+        style={inputStyle}
+      />
+      <input
+        type="password"
+        placeholder="password (6+ characters)"
+        value={authPassword}
+        onChange={(e) => setAuthPassword(e.target.value)}
+        style={{ ...inputStyle, marginBottom: 12 }}
+      />
+      <button
+        onClick={handleAuth}
+        disabled={authLoading}
+        style={primaryBtnStyle(authLoading)}
+      >
+        {authLoading
+          ? "..."
+          : authMode === "signup"
+          ? "Create account"
+          : "Sign in"}
+      </button>
+      {authError && <div style={errorTextStyle}>{authError}</div>}
+      {authInfo && <div style={infoTextStyle}>{authInfo}</div>}
+    </div>
+  );
+
+  const AccountBar = () => (
     <div
       style={{
-        minHeight: "100vh",
-        background: C.bg,
-        backgroundImage: `
-          radial-gradient(ellipse at 20% 0%, rgba(63,167,150,0.07), transparent 55%),
-          radial-gradient(ellipse at 100% 100%, rgba(232,99,28,0.06), transparent 50%),
-          linear-gradient(${C.lineFaint} 1px, transparent 1px),
-          linear-gradient(90deg, ${C.lineFaint} 1px, transparent 1px)
-        `,
-        backgroundSize: "auto, auto, 28px 28px, 28px 28px",
-        color: C.text,
-        fontFamily: "'Space Grotesk', sans-serif",
         display: "flex",
-        flexDirection: "column",
-        position: "relative",
+        alignItems: "center",
+        gap: 14,
+        fontSize: 13,
+        color: C.textDim,
       }}
     >
-      <style>{FONTS}</style>
+      <span>
+        {session?.user?.email}{" "}
+        {isPaid
+          ? "· Full access"
+          : unlockedStages.length > 0
+          ? `· ${unlockedStages.length} stage${
+              unlockedStages.length > 1 ? "s" : ""
+            } unlocked`
+          : "· Free"}
+      </span>
+      <button onClick={handleSignOut} style={linkBtnStyle}>
+        Sign out
+      </button>
+    </div>
+  );
 
-      {/* Corner registration marks — drafting-sheet detail */}
-      {[
-        { top: 10, left: 10, borderRight: 0, borderBottom: 0 },
-        { top: 10, right: 10, borderLeft: 0, borderBottom: 0 },
-        { bottom: 10, left: 10, borderRight: 0, borderTop: 0 },
-        { bottom: 10, right: 10, borderLeft: 0, borderTop: 0 },
-      ].map((pos, i) => (
-        <div
-          key={i}
-          style={{
-            position: "fixed",
-            width: 14,
-            height: 14,
-            border: `1.5px solid ${C.line}`,
-            opacity: 0.6,
-            pointerEvents: "none",
-            zIndex: 50,
-            ...pos,
-          }}
-        />
-      ))}
+  /* ================= RENDER ================= */
 
-      {/* Header */}
-      <header
-        style={{
-          borderBottom: `2px solid ${C.line}`,
-          boxShadow: `0 1px 0 0 ${C.lineFaint}`,
-          padding: "20px 22px",
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 8,
-          background:
-            "linear-gradient(180deg, rgba(255,255,255,0.02), transparent)",
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 11,
-              letterSpacing: "0.18em",
-              color: C.accent,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <span style={{ fontSize: 13 }}>⌖</span>
-            BUILD SEQUENCE — GROUND UP
-          </div>
-          <div
-            style={{
-              fontSize: 24,
-              fontWeight: 700,
-              marginTop: 4,
-              letterSpacing: "-0.01em",
-              textShadow: "0 0 24px rgba(232,99,28,0.25)",
-            }}
-          >
-            Foundation-to-Finish Guide
-          </div>
-        </div>
-        <div
+  // ---- Landing page (no session) ----
+  if (!session) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, fontFamily: FONT, color: C.text }}>
+        <header
           style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 12,
-            color: C.textDim,
-            textAlign: "right",
-            minWidth: 150,
+            borderBottom: `1px solid ${C.border}`,
+            padding: "18px 24px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            background: C.panel,
           }}
         >
-          OVERALL PROGRESS
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              justifyContent: "flex-end",
-              marginTop: 4,
-            }}
-          >
-            <div
-              style={{
-                width: 70,
-                height: 6,
-                background: C.bgPanelAlt,
-                border: `1px solid ${C.line}`,
-                borderRadius: 3,
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  width: `${overallProgress.pct}%`,
-                  height: "100%",
-                  background: `linear-gradient(90deg, ${C.accentDim}, ${C.accent})`,
-                  boxShadow: `0 0 8px ${C.accent}`,
-                  transition: "width 0.3s ease",
-                }}
-              />
-            </div>
-            <span style={{ color: C.accent, fontSize: 16, fontWeight: 700 }}>
-              {overallProgress.pct}%
-            </span>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>Build Sequence</div>
+          <div style={{ fontSize: 12.5, color: C.textDim, letterSpacing: "0.06em" }}>
+            GROUND UP — FOUNDATION TO FINISH
           </div>
-          {session && (
-            <div
-              style={{
-                marginTop: 8,
-                fontSize: 11,
-                color: isPaid ? C.ok : C.textDim,
-              }}
-            >
-              {session.user.email}{" "}
-              {isPaid
-                ? "· FULL ACCESS"
-                : unlockedStages.length > 0
-                ? `· ${unlockedStages.length} STAGE${
-                    unlockedStages.length > 1 ? "S" : ""
-                  } UNLOCKED`
-                : "· FREE"}{" "}
-              <button
-                onClick={handleSignOut}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: C.textDim,
-                  textDecoration: "underline",
-                  cursor: "pointer",
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 11,
-                  padding: 0,
-                }}
-              >
-                sign out
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
+        </header>
 
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        {/* Stage rail */}
-        <nav
-          style={{
-            width: 250,
-            minWidth: 200,
-            borderRight: `2px solid ${C.line}`,
-            padding: "16px 0",
-            overflowY: "auto",
-            background:
-              "linear-gradient(180deg, rgba(255,255,255,0.015), transparent 30%)",
-          }}
-        >
-          {STAGES.map((s) => {
-            const p = stageProgress(s);
-            const isActive = s.id === active;
-            const complete = p.done === p.total;
-            const stagePct = p.total ? Math.round((p.done / p.total) * 100) : 0;
-            return (
-              <button
-                key={s.id}
-                onClick={() => setActive(s.id)}
-                style={{
-                  display: "block",
-                  width: "100%",
-                  textAlign: "left",
-                  background: isActive
-                    ? `linear-gradient(90deg, ${C.bgPanel}, ${C.bgPanelAlt})`
-                    : "transparent",
-                  border: "none",
-                  borderLeft: isActive
-                    ? `3px solid ${C.accent}`
-                    : "3px solid transparent",
-                  boxShadow: isActive
-                    ? "inset 0 0 20px rgba(232,99,28,0.05)"
-                    : "none",
-                  padding: "10px 16px",
-                  cursor: "pointer",
-                  color: C.text,
-                  transition: "background 0.15s ease",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontSize: 11,
-                      color: complete ? C.ok : C.textDim,
-                    }}
-                  >
-                    {String(s.id).padStart(2, "0")} · {s.weight}%
-                  </span>
-                  {!isUnlocked(s.id) ? (
-                    <span style={{ color: C.textDim, fontSize: 11 }}>🔒</span>
-                  ) : (
-                    complete && (
-                      <span style={{ color: C.ok, fontSize: 11 }}>✓</span>
-                    )
-                  )}
-                </div>
-                <div
-                  style={{
-                    fontSize: 13.5,
-                    marginTop: 3,
-                    marginBottom: 6,
-                    fontWeight: isActive ? 600 : 400,
-                    lineHeight: 1.3,
-                    color: !isUnlocked(s.id) ? C.textDim : C.text,
-                  }}
-                >
-                  {s.name}
-                </div>
-                {isUnlocked(s.id) && (
-                  <div
-                    style={{
-                      width: "100%",
-                      height: 3,
-                      background: "rgba(143,168,189,0.12)",
-                      borderRadius: 4,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${stagePct}%`,
-                        height: "100%",
-                        background: complete ? C.ok : C.accentDim,
-                        transition: "width 0.25s ease",
-                      }}
-                    />
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Main panel */}
-        <main
-          style={{
-            flex: 1,
-            padding: "24px 28px",
-            overflowY: "auto",
-          }}
-        >
-          <div
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 11,
-              color: C.textDim,
-              letterSpacing: "0.1em",
-              marginBottom: 6,
-            }}
-          >
-            STAGE {String(stage.id).padStart(2, "0")} / {STAGES.length} · WEIGHT{" "}
-            {stage.weight}% OF BUILD
-          </div>
-          <h2 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 12px" }}>
-            {stage.name}
-          </h2>
-          <p
-            style={{
-              color: C.textDim,
-              lineHeight: 1.55,
-              maxWidth: 640,
-              fontSize: 14.5,
-            }}
-          >
-            {!isUnlocked(stage.id)
-              ? "This stage — checklist, decision branching, and common site errors — is part of the full version, which is still in progress."
-              : dynamicSummary(stage)}
+        <main style={{ maxWidth: 900, margin: "0 auto", padding: "48px 24px 80px" }}>
+          <h1 style={{ fontSize: 34, lineHeight: 1.25, marginBottom: 14, fontWeight: 700 }}>
+            A construction guide that walks with you from cleared land to
+            handover — one decision at a time.
+          </h1>
+          <p style={{ fontSize: 17, color: C.textDim, lineHeight: 1.6, maxWidth: 640, marginBottom: 32 }}>
+            Nine stages, real site checklists, and guidance that actually
+            changes based on your soil test, your budget, and your floor
+            count — not a generic list of steps copied from a textbook.
           </p>
 
-          {/* Gate: locked stages show account-aware messaging instead
-              of the checklist/decision/errors content. */}
-          {!isUnlocked(stage.id) ? (
-            <div
-              style={{
-                marginTop: 18,
-                border: `1px solid ${C.accent}`,
-                background: "rgba(232,99,28,0.06)",
-                padding: 20,
-                borderRadius: 4,
-                maxWidth: 480,
-                boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
-              }}
-            >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: 16,
+              marginBottom: 44,
+            }}
+          >
+            {[
+              {
+                title: "Decision-driven",
+                body: "Your soil type changes the foundation guidance. Your budget changes the roofing guidance. Your floor count changes structural guidance.",
+              },
+              {
+                title: "Site checklists",
+                body: "Every stage ships with a practical, tickable checklist — not just theory.",
+              },
+              {
+                title: "Common site errors",
+                body: "Each stage flags the mistakes that actually happen on real sites, not textbook trivia.",
+              },
+            ].map((f, i) => (
               <div
+                key={i}
                 style={{
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 11,
-                  color: C.accent,
-                  letterSpacing: "0.08em",
-                  marginBottom: 10,
+                  background: C.panel,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 6,
+                  padding: 18,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                 }}
               >
-                🔒 FULL VERSION — LAUNCHING SOON
+                <div style={{ fontWeight: 700, marginBottom: 6, color: C.accent }}>
+                  {f.title}
+                </div>
+                <div style={{ fontSize: 14, color: C.textDim, lineHeight: 1.5 }}>
+                  {f.body}
+                </div>
               </div>
-              <p
-                style={{
-                  fontSize: 13.5,
-                  color: C.textDim,
-                  lineHeight: 1.5,
-                  marginBottom: 6,
-                }}
-              >
-                Stages {FREE_LIMIT + 1}–{STAGES.length} (foundation through
-                handover) will be available either one stage at a time, or
-                as a full bundle at a discount. Payment isn't live yet —
-                leave your email and you'll hear directly when it opens.
-                No charge, no action needed from you right now.
-              </p>
-              <p
-                style={{
-                  fontSize: 12,
-                  color: C.textDim,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  marginBottom: 14,
-                  opacity: 0.8,
-                }}
-              >
-                This stage individually, or all {STAGES.length - FREE_LIMIT} remaining
-                stages as a bundle — pricing to be confirmed at launch.
-              </p>
+            ))}
+          </div>
 
-              {session ? (
-                <div
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 12.5,
-                    color: C.textDim,
-                  }}
-                >
-                  Signed in as {session.user.email} — you're set up and on
-                  the list. This account will be switched on once the full
-                  version is ready; no further action needed from you.
-                </div>
-              ) : waitlistSubmitted ? (
-                <div
-                  style={{
-                    color: C.ok,
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 13,
-                  }}
-                >
-                  ✓ You're on the list — we'll email you when it's ready.
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <input
-                    type="email"
-                    placeholder="you@email.com"
-                    value={waitlistEmail}
-                    onChange={(e) => setWaitlistEmail(e.target.value)}
-                    style={{
-                      flex: 1,
-                      minWidth: 180,
-                      background: C.bgPanelAlt,
-                      border: `1px solid ${C.line}`,
-                      color: C.text,
-                      padding: "9px 10px",
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontSize: 13,
-                      borderRadius: 4,
-                    }}
-                  />
-                  <button
-                    onClick={submitWaitlist}
-                    disabled={waitlistSubmitting}
-                    style={navBtnStyle(waitlistSubmitting)}
-                  >
-                    {waitlistSubmitting ? "SAVING..." : "NOTIFY ME"}
-                  </button>
-                </div>
-              )}
-              {!session && (
-                <button
-                  onClick={() => setShowAuthForm((v) => !v)}
-                  style={{
-                    marginTop: 12,
-                    background: "transparent",
-                    border: "none",
-                    color: C.textDim,
-                    textDecoration: "underline",
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 12,
-                    cursor: "pointer",
-                    padding: 0,
-                  }}
-                >
-                  Already have an account? Sign in
-                </button>
-              )}
-              {!session && showAuthForm && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    borderTop: `1px solid ${C.line}`,
-                    paddingTop: 12,
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                    <button
-                      onClick={() => setAuthMode("signin")}
-                      style={{
-                        ...navBtnStyle(false),
-                        padding: "5px 10px",
-                        fontSize: 11,
-                        opacity: authMode === "signin" ? 1 : 0.5,
-                      }}
-                    >
-                      SIGN IN
-                    </button>
-                    <button
-                      onClick={() => setAuthMode("signup")}
-                      style={{
-                        ...navBtnStyle(false),
-                        padding: "5px 10px",
-                        fontSize: 11,
-                        opacity: authMode === "signup" ? 1 : 0.5,
-                      }}
-                    >
-                      SIGN UP
-                    </button>
-                  </div>
-                  <input
-                    type="email"
-                    placeholder="you@email.com"
-                    value={authEmail}
-                    onChange={(e) => setAuthEmail(e.target.value)}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      marginBottom: 6,
-                      background: C.bgPanelAlt,
-                      border: `1px solid ${C.line}`,
-                      color: C.text,
-                      padding: "9px 10px",
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontSize: 13,
-                      borderRadius: 4,
-                      boxSizing: "border-box",
-                    }}
-                  />
-                  <input
-                    type="password"
-                    placeholder="password (6+ characters)"
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      marginBottom: 8,
-                      background: C.bgPanelAlt,
-                      border: `1px solid ${C.line}`,
-                      color: C.text,
-                      padding: "9px 10px",
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontSize: 13,
-                      borderRadius: 4,
-                      boxSizing: "border-box",
-                    }}
-                  />
-                  <button
-                    onClick={handleAuth}
-                    disabled={authLoading}
-                    style={navBtnStyle(authLoading)}
-                  >
-                    {authLoading
-                      ? "..."
-                      : authMode === "signup"
-                      ? "CREATE ACCOUNT"
-                      : "SIGN IN"}
-                  </button>
-                  {authError && (
-                    <div
-                      style={{
-                        color: C.accent,
-                        fontSize: 12,
-                        marginTop: 8,
-                        fontFamily: "'JetBrains Mono', monospace",
-                      }}
-                    >
-                      {authError}
-                    </div>
-                  )}
-                  {authInfo && (
-                    <div
-                      style={{
-                        color: C.ok,
-                        fontSize: 12,
-                        marginTop: 8,
-                        fontFamily: "'JetBrains Mono', monospace",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {authInfo}
-                    </div>
-                  )}
-                </div>
-              )}
-              {waitlistError && (
-                <div
-                  style={{
-                    color: C.accent,
-                    fontSize: 12.5,
-                    marginTop: 8,
-                    fontFamily: "'JetBrains Mono', monospace",
-                  }}
-                >
-                  {waitlistError}
-                </div>
-              )}
+          <div
+            style={{
+              background: C.panel,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              padding: 28,
+              boxShadow: "0 2px 10px rgba(0,0,0,0.05)",
+              maxWidth: 400,
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
+              Get started
             </div>
-          ) : null}
-
-          {/* Decision block — free stages only */}
-          {isUnlocked(stage.id) && stage.decision && (
-            <div
-              style={{
-                marginTop: 18,
-                border: `1px solid ${C.line}`,
-                background: `linear-gradient(135deg, ${C.bgPanelAlt}, ${C.bgPanel})`,
-                padding: 16,
-                borderRadius: 4,
-                maxWidth: 640,
-                boxShadow: "0 6px 20px rgba(0,0,0,0.2)",
-              }}
-            >
-              <div
-                style={{
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 11,
-                  color: C.accent,
-                  letterSpacing: "0.08em",
-                  marginBottom: 10,
-                }}
-              >
-                DECISION POINT
-              </div>
-              <div style={{ fontSize: 14, marginBottom: 10 }}>
-                {stage.decision.label}
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {stage.decision.options.map((opt) => {
-                  const selected =
-                    decisions[stage.decision.key] === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      onClick={() =>
-                        setDecisions((d) => ({
-                          ...d,
-                          [stage.decision.key]: opt.value,
-                        }))
-                      }
-                      style={{
-                        fontFamily: "'JetBrains Mono', monospace",
-                        fontSize: 12.5,
-                        padding: "8px 12px",
-                        border: `1px solid ${
-                          selected ? C.accent : C.line
-                        }`,
-                        background: selected
-                          ? "rgba(232,99,28,0.15)"
-                          : "transparent",
-                        color: C.text,
-                        borderRadius: 4,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {stage.id === 6 && floorsWarning}
+            <div style={{ fontSize: 13.5, color: C.textDim, marginBottom: 18 }}>
+              Stages 1–{FREE_LIMIT} are free for everyone once you're signed
+              in. No card required to create an account.
             </div>
-          )}
-
-          {/* Checklist + Common errors — free stages only */}
-          {isUnlocked(stage.id) && (
-            <>
-              <div style={{ marginTop: 24, maxWidth: 640 }}>
-                <div
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 11,
-                    color: C.textDim,
-                    letterSpacing: "0.08em",
-                    marginBottom: 10,
-                  }}
-                >
-                  SITE CHECKLIST
-                </div>
-                {stage.checklist.map((item, idx) => {
-                  const key = `${stage.id}-${idx}`;
-                  const done = !!checks[key];
-                  return (
-                    <label
-                      key={idx}
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: 10,
-                        padding: "8px 0",
-                        borderBottom: `1px solid ${C.lineFaint}`,
-                        cursor: "pointer",
-                        fontSize: 14,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={done}
-                        onChange={() => toggleCheck(stage.id, idx)}
-                        style={{ marginTop: 3, accentColor: C.accent }}
-                      />
-                      <span
-                        style={{
-                          color: done ? C.ok : C.text,
-                          lineHeight: 1.4,
-                        }}
-                      >
-                        {item}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-
-              <div style={{ marginTop: 24, maxWidth: 640, marginBottom: 20 }}>
-                <div
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 11,
-                    color: C.accent,
-                    letterSpacing: "0.08em",
-                    marginBottom: 10,
-                  }}
-                >
-                  ⚠ COMMON SITE ERRORS AT THIS STAGE
-                </div>
-                {stage.errors.map((e, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      fontSize: 13.5,
-                      color: C.textDim,
-                      lineHeight: 1.5,
-                      padding: "6px 0",
-                    }}
-                  >
-                    — {e}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Prev/Next */}
-          <div style={{ display: "flex", gap: 10, marginBottom: 30 }}>
-            <button
-              disabled={active === 1}
-              onClick={() => setActive((a) => Math.max(1, a - 1))}
-              style={navBtnStyle(active === 1)}
-            >
-              ← PREV STAGE
-            </button>
-            <button
-              disabled={active === STAGES.length}
-              onClick={() => setActive((a) => Math.min(STAGES.length, a + 1))}
-              style={navBtnStyle(active === STAGES.length)}
-            >
-              NEXT STAGE →
-            </button>
+            <AuthPanel />
           </div>
         </main>
       </div>
+    );
+  }
 
-      {/* Title block, drafting-sheet style */}
-      <footer
+  // ---- Stage overview (signed in, page === "overview") ----
+  if (page === "overview") {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, fontFamily: FONT, color: C.text }}>
+        <header
+          style={{
+            borderBottom: `1px solid ${C.border}`,
+            padding: "18px 24px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 10,
+            background: C.panel,
+          }}
+        >
+          <div style={{ fontSize: 20, fontWeight: 700 }}>Build Sequence</div>
+          <AccountBar />
+        </header>
+
+        <main style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px 60px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+            <h2 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Your stages</h2>
+            <span style={{ fontSize: 13.5, color: C.textDim }}>
+              Overall progress: <strong style={{ color: C.accent }}>{overallProgress.pct}%</strong>
+            </span>
+          </div>
+          <p style={{ color: C.textDim, marginBottom: 26, fontSize: 14.5 }}>
+            Select any stage to begin. Locked stages are shown so you can
+            see the full scope of the guide.
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+              gap: 14,
+            }}
+          >
+            {STAGES.map((s) => {
+              const p = stageProgress(s);
+              const complete = p.done === p.total;
+              const unlocked = isUnlocked(s.id);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => goToStage(s.id)}
+                  style={{
+                    textAlign: "left",
+                    background: C.panel,
+                    border: `1px solid ${unlocked ? C.border : C.warn}`,
+                    borderRadius: 6,
+                    padding: 16,
+                    cursor: "pointer",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                    fontFamily: FONT,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: 12.5, color: C.textDim }}>
+                      Stage {String(s.id).padStart(2, "0")} · {s.weight}% of build
+                    </span>
+                    {!unlocked ? (
+                      <span style={{ color: C.warn, fontSize: 12.5 }}>Locked</span>
+                    ) : complete ? (
+                      <span style={{ color: C.ok, fontSize: 12.5 }}>Complete</span>
+                    ) : null}
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, color: C.text }}>
+                    {s.name}
+                  </div>
+                  {unlocked && (
+                    <div style={{ width: "100%", height: 5, background: C.bgAlt, borderRadius: 3, overflow: "hidden" }}>
+                      <div
+                        style={{
+                          width: `${p.total ? Math.round((p.done / p.total) * 100) : 0}%`,
+                          height: "100%",
+                          background: complete ? C.ok : C.accent,
+                        }}
+                      />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ---- Stage detail (signed in, page === "detail") ----
+  const floorsInfo = decisions.floors ? FLOORS_TEXT[decisions.floors] : null;
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: FONT, color: C.text }}>
+      <header
         style={{
-          borderTop: `1px solid ${C.line}`,
-          padding: "10px 20px",
+          borderBottom: `1px solid ${C.border}`,
+          padding: "18px 24px",
           display: "flex",
-          gap: 24,
+          justifyContent: "space-between",
           alignItems: "center",
           flexWrap: "wrap",
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 11,
-          color: C.textDim,
-          background: C.bgPanelAlt,
+          gap: 10,
+          background: C.panel,
         }}
       >
-        <div>
-          PROJECT:{" "}
-          <input
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value.toUpperCase())}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <button onClick={() => setPage("overview")} style={linkBtnStyle}>
+            ← All stages
+          </button>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>Build Sequence</div>
+        </div>
+        <AccountBar />
+      </header>
+
+      <main style={{ maxWidth: 760, margin: "0 auto", padding: "28px 24px 60px" }}>
+        {/* Stage dropdown + prev/next */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 20, flexWrap: "wrap" }}>
+          <select
+            value={active}
+            onChange={(e) => setActive(Number(e.target.value))}
             style={{
-              background: "transparent",
-              border: "none",
-              borderBottom: `1px solid ${C.line}`,
-              color: C.text,
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 11,
-              width: 180,
+              ...inputStyle,
+              width: "auto",
+              flex: "1 1 220px",
+              marginBottom: 0,
+              fontFamily: FONT,
             }}
-          />
+          >
+            {STAGES.map((s) => (
+              <option key={s.id} value={s.id}>
+                {String(s.id).padStart(2, "0")} — {s.name}
+                {!isUnlocked(s.id) ? " (locked)" : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            disabled={active === 1}
+            onClick={() => setActive((a) => Math.max(1, a - 1))}
+            style={secondaryBtnStyle(active === 1)}
+          >
+            ← Prev
+          </button>
+          <button
+            disabled={active === STAGES.length}
+            onClick={() => setActive((a) => Math.min(STAGES.length, a + 1))}
+            style={secondaryBtnStyle(active === STAGES.length)}
+          >
+            Next →
+          </button>
         </div>
-        <div>
-          SHEET: {String(stage.id).padStart(2, "0")} / {STAGES.length}
+
+        <div style={{ fontSize: 13, color: C.textDim, marginBottom: 4 }}>
+          Stage {String(stage.id).padStart(2, "0")} of {STAGES.length} · {stage.weight}% of build
         </div>
-        <div>
-          SOIL: {decisions.soil ? decisions.soil.toUpperCase() : "—"}
+        <h2 style={{ fontSize: 26, fontWeight: 700, margin: "0 0 12px" }}>{stage.name}</h2>
+        <p style={{ color: C.textDim, lineHeight: 1.6, fontSize: 15.5, marginBottom: 18 }}>
+          {!isUnlocked(stage.id)
+            ? "This stage — checklist, decision branching, and common site errors — is part of the full version, which is still in progress."
+            : dynamicSummary(stage)}
+        </p>
+
+        {!isUnlocked(stage.id) ? (
+          <div
+            style={{
+              border: `1px solid ${C.warn}`,
+              background: C.warnSoft,
+              borderRadius: 6,
+              padding: 20,
+              maxWidth: 460,
+            }}
+          >
+            <div style={{ fontWeight: 700, color: C.warn, marginBottom: 8 }}>
+              Full version — launching soon
+            </div>
+            <p style={{ fontSize: 13.5, color: C.textDim, lineHeight: 1.5, marginBottom: 6 }}>
+              Available either one stage at a time, or as a full bundle at a
+              discount. Payment isn't live yet — leave your email and
+              you'll hear when it opens.
+            </p>
+            {waitlistSubmitted ? (
+              <div style={{ color: C.ok, fontSize: 13.5, marginTop: 10 }}>
+                ✓ You're on the list — we'll email you when it's ready.
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                <input
+                  type="email"
+                  placeholder="you@email.com"
+                  value={waitlistEmail}
+                  onChange={(e) => setWaitlistEmail(e.target.value)}
+                  style={{ ...inputStyle, flex: 1, minWidth: 180, marginBottom: 0 }}
+                />
+                <button
+                  onClick={submitWaitlist}
+                  disabled={waitlistSubmitting}
+                  style={primaryBtnStyle(waitlistSubmitting)}
+                >
+                  {waitlistSubmitting ? "Saving..." : "Notify me"}
+                </button>
+              </div>
+            )}
+            {waitlistError && <div style={errorTextStyle}>{waitlistError}</div>}
+          </div>
+        ) : (
+          <>
+            {stage.decision && (
+              <div
+                style={{
+                  border: `1px solid ${C.border}`,
+                  background: C.panel,
+                  borderRadius: 6,
+                  padding: 18,
+                  marginBottom: 22,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                }}
+              >
+                <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 10 }}>
+                  DECISION POINT
+                </div>
+                <div style={{ fontSize: 15, marginBottom: 12 }}>{stage.decision.label}</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {stage.decision.options.map((opt) => {
+                    const selected = decisions[stage.decision.key] === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() =>
+                          setDecisions((d) => ({ ...d, [stage.decision.key]: opt.value }))
+                        }
+                        style={{
+                          fontFamily: FONT,
+                          fontSize: 14,
+                          padding: "9px 14px",
+                          border: `1px solid ${selected ? C.accent : C.border}`,
+                          background: selected ? C.accentSoft : C.bg,
+                          color: selected ? C.accent : C.text,
+                          borderRadius: 5,
+                          cursor: "pointer",
+                          fontWeight: selected ? 700 : 400,
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {stage.id === 6 && floorsInfo && (
+                  <div
+                    style={{
+                      marginTop: 14,
+                      paddingTop: 14,
+                      borderTop: `1px solid ${C.border}`,
+                      fontSize: 14,
+                      lineHeight: 1.55,
+                      color: C.text,
+                    }}
+                  >
+                    <strong>{floorsInfo.label}:</strong> {floorsInfo.detail}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ marginBottom: 26 }}>
+              <div style={{ fontSize: 12.5, color: C.textDim, fontWeight: 700, marginBottom: 10 }}>
+                SITE CHECKLIST
+              </div>
+              {stage.checklist.map((item, idx) => {
+                const key = `${stage.id}-${idx}`;
+                const done = !!checks[key];
+                return (
+                  <label
+                    key={idx}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 10,
+                      padding: "9px 0",
+                      borderBottom: `1px solid ${C.border}`,
+                      cursor: "pointer",
+                      fontSize: 15,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={done}
+                      onChange={() => toggleCheck(stage.id, idx)}
+                      style={{ marginTop: 3, accentColor: C.accent }}
+                    />
+                    <span style={{ color: done ? C.ok : C.text, lineHeight: 1.45 }}>{item}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div style={{ marginBottom: 30 }}>
+              <div style={{ fontSize: 12.5, color: C.warn, fontWeight: 700, marginBottom: 10 }}>
+                COMMON SITE ERRORS AT THIS STAGE
+              </div>
+              {stage.errors.map((e, i) => (
+                <div key={i} style={{ fontSize: 14.5, color: C.textDim, lineHeight: 1.55, padding: "6px 0" }}>
+                  — {e}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            disabled={active === 1}
+            onClick={() => setActive((a) => Math.max(1, a - 1))}
+            style={secondaryBtnStyle(active === 1)}
+          >
+            ← Prev stage
+          </button>
+          <button
+            disabled={active === STAGES.length}
+            onClick={() => setActive((a) => Math.min(STAGES.length, a + 1))}
+            style={secondaryBtnStyle(active === STAGES.length)}
+          >
+            Next stage →
+          </button>
         </div>
-        <div>
-          BUDGET: {decisions.budget ? decisions.budget.toUpperCase() : "—"}
-        </div>
-        <div>FLOORS: {decisions.floors || "—"}</div>
-      </footer>
+      </main>
     </div>
   );
 }
 
-function navBtnStyle(disabled) {
+/* ---------- Shared style helpers ---------- */
+const inputStyle = {
+  display: "block",
+  width: "100%",
+  boxSizing: "border-box",
+  background: "#FFFFFF",
+  border: `1px solid ${C_border()}`,
+  color: "#1B1F24",
+  padding: "10px 12px",
+  fontSize: 14,
+  borderRadius: 5,
+  marginBottom: 10,
+};
+
+function C_border() {
+  return "#DDE1E6";
+}
+
+function tabBtnStyle(active) {
   return {
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: 12,
-    padding: "10px 16px",
-    background: disabled ? "transparent" : "rgba(232,99,28,0.12)",
-    border: `1px solid ${disabled ? "#2C5A82" : "#E8631C"}`,
-    color: disabled ? "#8FA8BD" : "#EDEFF2",
-    cursor: disabled ? "not-allowed" : "pointer",
-    borderRadius: 4,
-    opacity: disabled ? 0.5 : 1,
+    fontFamily: FONT,
+    fontSize: 12.5,
+    padding: "7px 12px",
+    border: `1px solid ${active ? "#1D4ED8" : "#DDE1E6"}`,
+    background: active ? "rgba(29,78,216,0.08)" : "transparent",
+    color: active ? "#1D4ED8" : "#5B6472",
+    borderRadius: 5,
+    cursor: "pointer",
+    fontWeight: active ? 700 : 400,
   };
 }
+
+function primaryBtnStyle(disabled) {
+  return {
+    fontFamily: FONT,
+    fontSize: 14,
+    padding: "10px 16px",
+    background: disabled ? "#9CA8C4" : "#1D4ED8",
+    border: "none",
+    color: "#FFFFFF",
+    borderRadius: 5,
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontWeight: 700,
+  };
+}
+
+function secondaryBtnStyle(disabled) {
+  return {
+    fontFamily: FONT,
+    fontSize: 14,
+    padding: "9px 15px",
+    background: disabled ? "#F0F1F3" : "#FFFFFF",
+    border: `1px solid ${disabled ? "#DDE1E6" : "#C3C9D1"}`,
+    color: disabled ? "#9AA2AC" : "#1B1F24",
+    borderRadius: 5,
+    cursor: disabled ? "not-allowed" : "pointer",
+  };
+}
+
+const linkBtnStyle = {
+  background: "none",
+  border: "none",
+  color: "#5B6472",
+  textDecoration: "underline",
+  cursor: "pointer",
+  fontFamily: FONT,
+  fontSize: 13,
+  padding: 0,
+};
+
+const errorTextStyle = {
+  color: "#B91C1C",
+  fontSize: 12.5,
+  marginTop: 8,
+  fontFamily: FONT,
+};
+
+const infoTextStyle = {
+  color: "#15803D",
+  fontSize: 12.5,
+  marginTop: 8,
+  fontFamily: FONT,
+  lineHeight: 1.4,
+};
