@@ -15,8 +15,9 @@
  *
  * Branching content: answers recorded in one stage (soil type, budget
  * tier, floor count) change guidance shown in later stages — see
- * dynamicSummary() and the SOIL_TEXT / ROOF_TEXT / FLOORS_TEXT lookup
- * tables below.
+ * dynamicSummary() and the SOIL_TEXT / ROOF_TEXT lookup tables, plus
+ * per-decision "detail" text attached directly in the STAGES array
+ * (see decisionPoints[].detail below).
  *
  * All progress/decision state is kept in React state only — nothing
  * persists between page loads except account + unlock status, which
@@ -160,6 +161,90 @@ function LandingSketches() {
   );
 }
 
+/**
+ * SummaryElevation — a schematic front-elevation sketch for Stage 9
+ * that reflects the choices made earlier in the app: floor count sets
+ * storey count, soil type sets the foundation symbol drawn underneath
+ * (strip / raft / piles), and budget tier tints the roof.
+ *
+ * Deliberately NOT presented as a real elevation or section drawing —
+ * it's a schematic recap for orientation only. Actual elevations,
+ * sections, and 3D representation must come from the architect's and
+ * structural engineer's real drawings (see Stage 2). Faking those with
+ * any accuracy from a handful of multiple-choice answers isn't
+ * possible, and presenting one as if it were real would be actively
+ * misleading for something people build with real money.
+ */
+function SummaryElevation({ decisions }) {
+  const floorsCount =
+    decisions.floors === "3+" ? 3 : decisions.floors === "2" ? 2 : 1;
+  const floorHeight = 46;
+  const floorWidth = 170;
+  const baseX = 65;
+  const groundY = 210;
+  const roofColor =
+    decisions.budget === "premium"
+      ? C.yellow
+      : decisions.budget === "economy"
+      ? C.borderStrong
+      : C.accent;
+
+  const floorRects = [];
+  for (let i = 0; i < floorsCount; i++) {
+    const y = groundY - floorHeight * (i + 1);
+    floorRects.push(
+      <rect key={"f" + i} x={baseX} y={y} width={floorWidth} height={floorHeight} fill="#FFFFFF" stroke={C.text} strokeWidth="2" />
+    );
+    floorRects.push(
+      <rect key={"w1-" + i} x={baseX + 18} y={y + 14} width={26} height={20} fill="none" stroke={C.textDim} strokeWidth="1.5" />
+    );
+    floorRects.push(
+      <rect key={"w2-" + i} x={baseX + floorWidth - 44} y={y + 14} width={26} height={20} fill="none" stroke={C.textDim} strokeWidth="1.5" />
+    );
+  }
+
+  const roofBaseY = groundY - floorHeight * floorsCount;
+  const roofTopY = roofBaseY - 38;
+
+  const foundationTopY = groundY;
+  let foundationEl;
+  let groundLineY;
+  if (decisions.soil === "waterlogged") {
+    groundLineY = groundY + 30;
+    foundationEl = (
+      <g>
+        <line x1={baseX + 14} y1={foundationTopY} x2={baseX + 14} y2={groundLineY} stroke={C.text} strokeWidth="3" />
+        <line x1={baseX + floorWidth / 2} y1={foundationTopY} x2={baseX + floorWidth / 2} y2={groundLineY} stroke={C.text} strokeWidth="3" />
+        <line x1={baseX + floorWidth - 14} y1={foundationTopY} x2={baseX + floorWidth - 14} y2={groundLineY} stroke={C.text} strokeWidth="3" />
+      </g>
+    );
+  } else if (decisions.soil === "clay") {
+    groundLineY = groundY + 14;
+    foundationEl = (
+      <rect x={baseX - 18} y={foundationTopY} width={floorWidth + 36} height={14} fill={C.bgAlt} stroke={C.text} strokeWidth="2" />
+    );
+  } else {
+    groundLineY = groundY + 10;
+    foundationEl = (
+      <rect x={baseX - 6} y={foundationTopY} width={floorWidth + 12} height={10} fill={C.bgAlt} stroke={C.text} strokeWidth="2" />
+    );
+  }
+
+  return (
+    <svg width="100%" height="240" viewBox="0 0 300 240" style={{ maxWidth: 300, display: "block", margin: "0 auto" }}>
+      <line x1="15" y1={groundLineY} x2="285" y2={groundLineY} stroke={C.border} strokeWidth="2" />
+      {foundationEl}
+      {floorRects}
+      <polygon
+        points={`${baseX - 10},${roofBaseY} ${baseX + floorWidth / 2},${roofTopY} ${baseX + floorWidth + 10},${roofBaseY}`}
+        fill={roofColor}
+        stroke={C.text}
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
 /* ---------- Content model ---------- */
 const STAGES = [
   {
@@ -179,13 +264,39 @@ const STAGES = [
       "Starting excavation before the soil test result is back — the foundation type downstream depends on it.",
       "Relying on a neighbour's soil report instead of testing your own plot; conditions vary within metres.",
     ],
-    decision: {
-      key: "soil",
-      label: "What did the soil test show?",
-      options: [
-        { value: "sandy", label: "Sandy / firm loamy" },
-        { value: "clay", label: "Clayey / expansive" },
-        { value: "waterlogged", label: "Waterlogged / weak / peaty" },
+    decisionPoints: [
+      {
+        key: "soil",
+        label: "What did the soil test show?",
+        options: [
+          { value: "sandy", label: "Sandy / firm loamy" },
+          { value: "clay", label: "Clayey / expansive" },
+          { value: "waterlogged", label: "Waterlogged / weak / peaty" },
+        ],
+      },
+      {
+        key: "landSize",
+        label: "What size is the plot?",
+        options: [
+          { value: "half", label: "Half plot (~300–350 sqm)" },
+          { value: "full", label: "Full plot (~600–650 sqm)" },
+          { value: "large", label: "Multiple plots / 900+ sqm" },
+        ],
+        detail: {
+          half: "On a half plot, setback allowances eat a proportionally larger share of your buildable area — confirm your local planning authority's minimum setback (commonly around 1.5m at the sides, more at the front) before the architectural footprint is finalised. There's little room for boundary error at this size, so the survey plan's accuracy matters more than usual.",
+          full: "A full plot gives more flexibility in footprint and setback compliance, but don't assume a 'standard' plot size — dimensions vary by estate and by state. Confirm actual boundary measurements against your survey plan rather than a plot-size assumption.",
+          large: "On multiple plots or 900+ sqm, there's room for a larger footprint or future extensions — but if the land was acquired as separate parcels, the survey plan needs to clearly demarcate each plot's boundary. Confirm whether the beacons reflect a single consolidated title or whether each plot's documentation stays distinct; this affects how the C of O is issued.",
+        },
+      },
+    ],
+    deepDive: {
+      title: "Producing your survey drawing, step by step",
+      steps: [
+        "Engage a surveyor registered with the state Surveyor-General's office — an unregistered survey has no standing for title or approval purposes.",
+        "The surveyor visits the site to establish beacons (boundary corner markers) using coordinates tied to the national grid, not just tape-measured distances from a neighbour's fence.",
+        "A survey plan is drafted showing the plot's exact dimensions, coordinates, and beacon numbers, then prepared to the format the Surveyor-General's office requires for registration.",
+        "The plan is submitted for vetting and registration at the Surveyor-General's office — this is what makes it a legally recognised document, not just a private drawing.",
+        "Keep the registered survey plan and its coordinates on hand; your architect and structural engineer both need it to site the building correctly, and it's required to apply for your Certificate of Occupancy.",
       ],
     },
   },
@@ -206,18 +317,39 @@ const STAGES = [
       "Proceeding without a structural engineer's stamp — this is a common shortcut that shows up as cracking later.",
       "Under-budgeting the BOQ by pricing only materials and skipping labour, waste allowance, and haulage.",
     ],
-    decision: {
-      key: "budget",
-      label: "What budget tier are you designing for?",
-      options: [
-        { value: "economy", label: "Economy" },
-        { value: "standard", label: "Standard" },
-        { value: "premium", label: "Premium" },
-      ],
-    },
+    decisionPoints: [
+      {
+        key: "budget",
+        label: "What budget tier are you designing for?",
+        options: [
+          { value: "economy", label: "Economy" },
+          { value: "standard", label: "Standard" },
+          { value: "premium", label: "Premium" },
+        ],
+      },
+      {
+        key: "drawings",
+        label: "Do you already have your architectural & structural drawings?",
+        options: [
+          { value: "need", label: "No — I need guidance producing them" },
+          { value: "have", label: "Yes — I have them ready" },
+        ],
+        detail: {
+          need: [
+            "Architectural drawings: engage a registered architect. These cover floor plans, elevations, and sections — the building's layout and appearance — and are what your building permit application is based on.",
+            "Structural drawings & reinforcement detailing: engage a registered structural engineer separately from the architect. Structural drawings include a bar schedule for every reinforced element — each entry lists a bar mark, diameter, shape (straight, L-bend, U-bend, stirrup, etc.), cut length, and quantity. This is what your site steel-fixer works from, and it's also what a quantity surveyor uses to price the steel line in your BOQ. Cover thickness and lap lengths (how far bars overlap where they're spliced) are specified here too — both matter for durability, not just strength.",
+            "Electrical & plumbing (MEP) coordination: MEP drawings must be overlaid on the structural drawing before casting, not adjusted after. The structural engineer needs to know where conduit runs and plumbing stacks pass through slabs and beams, so sleeves and openings can be built into the formwork in advance. Coordinating this afterward means chasing finished concrete — weakening it — instead of casting it correctly the first time.",
+          ],
+          have: [
+            "Good — upload your drawing files below so they're attached to this project. Accepted formats: PDF, JPG/PNG (scanned sheets), or DWG.",
+          ],
+        },
+      },
+    ],
   },
   {
     id: 3,
+
     name: "Site Preparation & Setting Out",
     weight: 5,
     summary:
@@ -233,6 +365,15 @@ const STAGES = [
       "Skipping the diagonal check — a footprint that's a few centimetres off-square compounds into real wall and roofing problems.",
       "Building right up against the boundary without re-confirming beacons against the survey plan.",
     ],
+    deepDive: {
+      title: "Setting out, explained: profile boards, building lines, diagonals, and benchmark",
+      steps: [
+        "Profile boards: horizontal boards nailed to pairs of pegs, set back roughly 1–1.5m beyond each corner of the building so they survive the coming excavation undisturbed. Nails or saw-cuts on top of each board mark the exact wall lines, so string can be stretched, removed, and re-stretched in exactly the same position throughout construction.",
+        "Building lines: strings pulled taut between the marked points on opposite profile boards, tracing the actual faces of every wall. These lines — not the excavation edges — are what excavation, blockwork, and every trade after it line up against.",
+        "Diagonals check: for a rectangular footprint, measure both corner-to-corner diagonals. If the footprint is truly square, the two diagonals are equal; a difference of even a few centimetres means a corner isn't a true right angle, and it should be corrected before excavation starts — the error only compounds once walls and roof go up.",
+        "Benchmark level: a fixed, undisturbed reference point — often a peg driven well outside the work area, or a mark on an existing permanent structure — with a known or assumed reduced level (RL). Every depth and height on the project (excavation depth, DPC level, floor level, lintel level) is measured relative to this one benchmark, not re-measured from the ground each time, so small errors don't accumulate stage by stage.",
+      ],
+    },
   },
   {
     id: 4,
@@ -251,6 +392,34 @@ const STAGES = [
       "Backfilling or building on the foundation before the minimum curing period.",
       "Using an ad-hoc mix ratio instead of the one specified in the structural drawing.",
     ],
+    decisionPoints: [
+      {
+        key: "mixScenario",
+        label: "Which element are you mixing concrete for right now?",
+        options: [
+          { value: "blinding", label: "Blinding / PCC layer" },
+          { value: "massFooting", label: "Mass concrete strip footing" },
+          { value: "reinforcedFooting", label: "Reinforced footing / raft" },
+        ],
+        detail: {
+          blinding:
+            "Blinding (PCC) is a thin, non-structural levelling layer poured directly on excavated ground before reinforcement — typically mixed 1:4:8 or 1:3:6 (cement:sand:granite), about 50–75mm thick. Its job is to give a clean, level, non-porous surface so reinforcement bars sit at the correct cover height instead of resting in mud.",
+          massFooting:
+            "A mass concrete strip footing (no reinforcement, used on firm soils per your Stage 1 soil result) is typically mixed 1:3:6 or 1:2:4 (cement:sand:granite) where a stronger mix is specified. Confirm the exact ratio against your structural drawing rather than defaulting to a rule of thumb — footing size and soil bearing capacity determine what's actually required.",
+          reinforcedFooting:
+            "A reinforced footing or raft (typically required on clayey/expansive or waterlogged soils per your Stage 1 result) is normally mixed 1:2:4 (cement:sand:granite) or to the specific grade stated on your structural drawing. Water-cement ratio matters as much as the volumetric ratio here — too much water weakens the cured strength even if the mix looks 'right'. If your soil test flagged waterlogged or sulfate-bearing ground, ask your engineer whether sulfate-resisting cement is needed.",
+        },
+      },
+    ],
+    deepDive: {
+      title: "Getting curing right",
+      steps: [
+        "Keep every poured element moist for a minimum of 7 days — concrete gains strength through a chemical reaction with water, not by drying out, so letting it dry early stops that reaction partway.",
+        "Cover with wet hessian sacking, straw, or polythene sheeting to slow evaporation, especially the first 24–48 hours when fresh concrete is most vulnerable to surface cracking.",
+        "In hot, dry, or windy conditions, water more frequently than the minimum — evaporation outpaces the cure faster than most people expect, particularly on exposed foundation work.",
+        "Do not load, backfill against, or build on top of any element before its minimum curing period is complete, even if it looks and feels hard on the surface.",
+      ],
+    },
   },
   {
     id: 5,
@@ -268,6 +437,17 @@ const STAGES = [
       "Skipping the DPC to save cost — this is one of the most common causes of damp walls years later.",
       "Backfilling in one bulk layer, leaving air pockets that settle unevenly under floor slabs.",
     ],
+    deepDive: {
+      title: "DPC and plinth beam, in detail",
+      steps: [
+        "DPC placement: lay the damp-proof course as a continuous horizontal layer across the full thickness of every wall — including through any cavity — at a level roughly 150–225mm above finished ground level and below the floor slab. Gaps or narrow strips defeat the purpose; moisture bypasses any part of the wall width the DPC doesn't cover.",
+        "DPC material & laps: common materials are bituminous felt, polythene sheeting, or a dense, low-permeability mortar layer — confirm which your specification calls for. Where one length meets the next, overlap by at least 100–150mm so there's no continuous gap for moisture to track through.",
+        "DPC at openings: door thresholds and other ground-level openings need special DPC detailing (stepped or dressed up at the sides) so the barrier stays continuous around the opening rather than stopping short at it — a common gap point for rising damp.",
+        "Plinth beam purpose: a reinforced concrete beam cast at plinth level, running continuously around the building's perimeter and across internal load lines, tying every column together at that level. It spreads load evenly onto the foundation and resists differential settlement between columns founded on slightly different ground conditions.",
+        "Plinth beam reinforcement & casting: sized and reinforced per your structural drawing — commonly a rectangular cage with top and bottom bars plus stirrups at specified spacing. Reinforcement must run continuously (lapped, not simply butted) past every column, and the beam needs the same moist curing (minimum 7 days) as any other structural concrete element before it's loaded.",
+        "Plinth level check: before wall-up begins above the plinth beam, recheck the top level against your Stage 3 benchmark — this is the reference level every wall course, and eventually the floor slab, will be built up from.",
+      ],
+    },
   },
   {
     id: 6,
@@ -286,15 +466,22 @@ const STAGES = [
       "Continuing block work above an opening without casting the lintel first.",
       "Rushing curing time on columns before the next floor's load is applied.",
     ],
-    decision: {
-      key: "floors",
-      label: "How many floors is the building?",
-      options: [
-        { value: "1", label: "Single storey" },
-        { value: "2", label: "Two storeys" },
-        { value: "3+", label: "Three or more" },
-      ],
-    },
+    decisionPoints: [
+      {
+        key: "floors",
+        label: "How many floors is the building?",
+        options: [
+          { value: "1", label: "Single storey" },
+          { value: "2", label: "Two storeys" },
+          { value: "3+", label: "Three or more" },
+        ],
+        detail: {
+          "1": "Standard column, beam, and foundation sizing from your structural drawing applies directly — loads are straightforward and a typical strip or pad foundation (per your soil result in Stage 1) is usually sufficient.",
+          "2": "Do not assume ground-floor column and beam sizing simply carries up. The added floor roughly doubles the load path down to the foundation, so beam spans, column sections, and foundation bearing capacity all need to be rechecked for two storeys specifically — confirm this explicitly with your structural engineer rather than reusing single-storey numbers.",
+          "3+": "This is a different structural regime, not just 'more of the same'. Wind loading — and seismic loading, depending on your location — becomes a real design factor, not a rounding error. Column and beam sizing must be calculated storey by storey, not assumed uniform. A raft or pile foundation is common instead of a simple strip footing, since point loads at the base are significantly higher. Full engineering design, structural drawings, and formal approval are required before construction — this height should not be attempted on a self-build, rule-of-thumb basis.",
+        },
+      },
+    ],
   },
   {
     id: 7,
@@ -311,6 +498,16 @@ const STAGES = [
       "Choosing a low pitch with a material that needs a steeper slope, causing leaks in the rains.",
       "Skipping truss bracing — trusses can rack sideways under wind load without it.",
     ],
+    deepDive: {
+      title: "Roof structure & trusses, explained",
+      steps: [
+        "Truss types: timber trusses (king-post for shorter spans, queen-post or fink trusses for wider spans) or light steel trusses (common on premium or wide-span roofs). Span and roofing material weight determine which is appropriate — this is a structural decision, not an aesthetic one, so confirm truss type and spacing against your structural or roofing drawing.",
+        "Roof pitch: dictated by the roofing material, not personal preference — long-span aluminium sheets tolerate lower pitches, while clay or concrete tiles typically need steeper pitches to shed water properly. Using a pitch below what the manufacturer specifies for your chosen material is a common, avoidable cause of leaks.",
+        "Truss bracing: individual trusses are inherently unstable sideways until they're braced to each other — diagonal and longitudinal bracing members tie the whole truss run together so wind load is shared across the roof structure rather than racking a single truss over. This is easy to skip on a self-build and is a safety issue, not just a durability one.",
+        "Fascia & gutter fall: fascia boards close off the truss ends and carry the gutter; the gutter itself needs a consistent fall toward the downpipe outlets — a flat or reverse-falling gutter holds water and overflows in heavy rain instead of draining it away.",
+        "Roofing sheet/tile fixing: fasteners, overlap, and fixing pattern should follow the manufacturer's specification for your material and pitch — under-fixing or incorrect overlap is a common cause of wind-lift failure in storms.",
+      ],
+    },
   },
   {
     id: 8,
@@ -329,6 +526,17 @@ const STAGES = [
       "Chasing walls for wiring after plastering is complete, instead of sleeving conduits beforehand.",
       "Tiling before screed has fully cured, causing hollow or cracked tiles.",
     ],
+    deepDive: {
+      title: "MEP rough-in & finishing, in the right sequence",
+      steps: [
+        "Conduit & pipe sleeving: electrical conduit runs and plumbing sleeves that pass through structural elements should already be planned into the structural drawing from Stage 2 — chasing them into finished concrete afterward cuts into reinforcement cover and weakens the member.",
+        "Test before you cover: pressure-test plumbing runs and continuity-test electrical circuits before plastering over them. A fault hidden behind finished plaster is far more expensive to fix than one caught now.",
+        "Plastering: only once conduits and pipework are fully routed, fixed, and tested — plastering is meant to be the last thing that happens to the wall surface, not a cover-up for unfinished rough-in.",
+        "Screeding & curing: lay screed only after below-floor plumbing and electrical work is complete and tested. Let the screed cure fully — commonly 7 or more days depending on thickness — before tiling; tiling over green screed is a frequent cause of hollow or cracked tiles.",
+        "Fixtures & fittings: fit doors, windows, and ironmongery once plastering is dry, so frames aren't knocked out of alignment by wall movement during cure.",
+        "Painting: apply only after every wet trade — plastering, screeding, tiling — is complete and properly dry. Painting too early traps moisture behind the finish, which shows up later as peeling or staining.",
+      ],
+    },
   },
   {
     id: 9,
@@ -371,24 +579,37 @@ const ROOF_TEXT = {
     "Roofing material recommendation depends on your budget tier. Set it in Stage 2 to see specific guidance here.",
 };
 
-// Detailed, storey-specific structural guidance — this replaces the old
-// one-line "3+ storeys, be careful" warning with an actual explanation
-// of what changes at each height.
-const FLOORS_TEXT = {
-  "1": {
-    label: "Single storey",
-    detail:
-      "Standard column, beam, and foundation sizing from your structural drawing applies directly — loads are straightforward and a typical strip or pad foundation (per your soil result in Stage 1) is usually sufficient.",
+// Human-readable labels for the Stage 9 project summary, keyed the
+// same way the raw decision values are stored in state.
+const SUMMARY_LABELS = {
+  soil: {
+    sandy: "Sandy / firm loamy",
+    clay: "Clayey / expansive",
+    waterlogged: "Waterlogged / weak / peaty",
   },
-  "2": {
-    label: "Two storeys",
-    detail:
-      "Do not assume ground-floor column and beam sizing simply carries up. The added floor roughly doubles the load path down to the foundation, so beam spans, column sections, and foundation bearing capacity all need to be rechecked for two storeys specifically — confirm this explicitly with your structural engineer rather than reusing single-storey numbers.",
+  landSize: {
+    half: "Half plot (~300–350 sqm)",
+    full: "Full plot (~600–650 sqm)",
+    large: "Multiple plots / 900+ sqm",
   },
-  "3+": {
-    label: "Three or more storeys",
-    detail:
-      "This is a different structural regime, not just 'more of the same'. Wind loading — and seismic loading, depending on your location — becomes a real design factor, not a rounding error. Column and beam sizing must be calculated storey by storey, not assumed uniform. A raft or pile foundation is common instead of a simple strip footing, since point loads at the base are significantly higher. Full engineering design, structural drawings, and formal approval are required before construction — this height should not be attempted on a self-build, rule-of-thumb basis.",
+  budget: {
+    economy: "Economy",
+    standard: "Standard",
+    premium: "Premium",
+  },
+  drawings: {
+    need: "Guided through producing drawings",
+    have: "Uploaded own drawings",
+  },
+  mixScenario: {
+    blinding: "Blinding / PCC",
+    massFooting: "Mass concrete strip footing",
+    reinforcedFooting: "Reinforced footing / raft",
+  },
+  floors: {
+    "1": "Single storey",
+    "2": "Two storeys",
+    "3+": "Three or more storeys",
   },
 };
 
@@ -551,6 +772,21 @@ export default function App() {
     if (s.id === 4) return SOIL_TEXT[decisions.soil] || SOIL_TEXT.default;
     if (s.id === 7) return ROOF_TEXT[decisions.budget] || ROOF_TEXT.default;
     return s.summary;
+  };
+
+  // BOQ guidance is deliberately qualitative, not a fabricated cost
+  // figure — material and labour prices move too much, and vary too
+  // much by state, for a fixed number here to be honest or useful.
+  // What's stable is *how* land size and budget tier each change the
+  // BOQ: size scales quantities, budget tier changes specification.
+  const boqGuidance = () => {
+    const landLabel =
+      { half: "a half plot", full: "a full plot", large: "multiple plots / a large site" }[
+        decisions.landSize
+      ];
+    const budgetLabel = decisions.budget;
+    if (!landLabel || !budgetLabel) return null;
+    return `Your plot size (${landLabel}) mainly drives the *quantities* in your BOQ — footprint, wall area, roof area, and so on scale with it, so a quantity surveyor should size every line item against your actual survey dimensions, not a generic per-square-metre guess. Your budget tier (${budgetLabel}) mainly drives *specification* within those same line items — which grade of block, which finish, which roofing material — rather than changing what's on the list. Treat these as two separate levers: get the quantities right from the drawings first, then apply your budget tier to select the specification for each item. A registered quantity surveyor is worth engaging here — local material prices move too often for any fixed figure to stay accurate.`;
   };
 
   const goToStage = (id) => {
@@ -808,7 +1044,6 @@ export default function App() {
   }
 
   // ---- Stage detail (signed in, page === "detail") ----
-  const floorsInfo = decisions.floors ? FLOORS_TEXT[decisions.floors] : null;
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text }}>
@@ -925,7 +1160,106 @@ export default function App() {
           </div>
         ) : (
           <>
-            {stage.decision && (
+            {stage.decisionPoints &&
+              stage.decisionPoints.map((dp, dpIdx) => {
+                const selectedValue = decisions[dp.key];
+                const detailContent = dp.detail && selectedValue ? dp.detail[selectedValue] : null;
+                return (
+                  <div
+                    key={dp.key}
+                    style={{
+                      border: `1px solid ${C.border}`,
+                      background: C.panel,
+                      borderRadius: 6,
+                      padding: 18,
+                      marginBottom: dpIdx === stage.decisionPoints.length - 1 ? 22 : 12,
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                    }}
+                  >
+                    <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 10 }}>
+                      DECISION POINT
+                    </div>
+                    <div style={{ fontSize: 15, marginBottom: 12 }}>{dp.label}</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {dp.options.map((opt) => {
+                        const selected = selectedValue === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            onClick={() =>
+                              setDecisions((d) => ({ ...d, [dp.key]: opt.value }))
+                            }
+                            style={{
+                              fontFamily: FONT,
+                              fontSize: 14,
+                              padding: "9px 14px",
+                              border: `1px solid ${selected ? C.accent : C.border}`,
+                              background: selected ? C.accentSoft : C.bg,
+                              color: selected ? C.accent : C.text,
+                              borderRadius: 5,
+                              cursor: "pointer",
+                              fontWeight: selected ? 700 : 400,
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {detailContent && (
+                      <div
+                        style={{
+                          marginTop: 14,
+                          paddingTop: 14,
+                          borderTop: `1px solid ${C.border}`,
+                          fontSize: 14,
+                          lineHeight: 1.55,
+                          color: C.text,
+                        }}
+                      >
+                        {Array.isArray(detailContent) ? (
+                          detailContent.map((para, i) => (
+                            <p key={i} style={{ margin: i === 0 ? "0 0 10px" : "10px 0" }}>
+                              {para}
+                            </p>
+                          ))
+                        ) : (
+                          <p style={{ margin: 0 }}>{detailContent}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Drawing upload — only on Stage 2's "drawings" decision, once "have" is selected */}
+                    {stage.id === 2 && dp.key === "drawings" && selectedValue === "have" && (
+                      <DrawingUpload session={session} />
+                    )}
+                  </div>
+                );
+              })}
+
+            {/* BOQ guidance — cross-stage, needs both land size (Stage 1) and budget (Stage 2) */}
+            {stage.id === 2 && boqGuidance() && (
+              <div
+                style={{
+                  border: `1px solid ${C.border}`,
+                  background: C.yellowSoft,
+                  borderRadius: 6,
+                  padding: 18,
+                  marginBottom: 22,
+                }}
+              >
+                <div style={{ fontSize: 12.5, color: C.accentDim, fontWeight: 700, marginBottom: 10 }}>
+                  BOQ GUIDANCE FOR YOUR PLOT + BUDGET
+                </div>
+                <p style={{ fontSize: 14, lineHeight: 1.6, color: C.text, margin: 0 }}>
+                  {boqGuidance()}
+                </p>
+              </div>
+            )}
+
+            {/* Deep-dive step-by-step guidance, where a stage has one */}
+            {stage.deepDive && (
               <div
                 style={{
                   border: `1px solid ${C.border}`,
@@ -937,50 +1271,73 @@ export default function App() {
                 }}
               >
                 <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 10 }}>
-                  DECISION POINT
+                  {stage.deepDive.title.toUpperCase()}
                 </div>
-                <div style={{ fontSize: 15, marginBottom: 12 }}>{stage.decision.label}</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {stage.decision.options.map((opt) => {
-                    const selected = decisions[stage.decision.key] === opt.value;
+                <ol style={{ margin: 0, paddingLeft: 20 }}>
+                  {stage.deepDive.steps.map((step, i) => (
+                    <li key={i} style={{ fontSize: 14, lineHeight: 1.6, color: C.text, marginBottom: 8 }}>
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            {/* Stage 9 only: schematic recap of every choice made across
+                the app, plus the elevation-style illustration. */}
+            {stage.id === 9 && (
+              <div
+                style={{
+                  border: `1px solid ${C.border}`,
+                  background: C.panel,
+                  borderRadius: 6,
+                  padding: 18,
+                  marginBottom: 22,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                }}
+              >
+                <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 10 }}>
+                  PROJECT SUMMARY — YOUR CHOICES SO FAR
+                </div>
+
+                <SummaryElevation decisions={decisions} />
+
+                <div style={{ marginTop: 16 }}>
+                  {Object.keys(SUMMARY_LABELS).map((key) => {
+                    const rawValue = decisions[key];
+                    const label = rawValue ? SUMMARY_LABELS[key][rawValue] : null;
+                    const fieldName =
+                      { soil: "Soil condition", landSize: "Land size", budget: "Budget tier",
+                        drawings: "Drawings", mixScenario: "Foundation mix scenario", floors: "Floor count" }[key];
                     return (
-                      <button
-                        key={opt.value}
-                        onClick={() =>
-                          setDecisions((d) => ({ ...d, [stage.decision.key]: opt.value }))
-                        }
+                      <div
+                        key={key}
                         style={{
-                          fontFamily: FONT,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          padding: "7px 0",
+                          borderBottom: `1px solid ${C.border}`,
                           fontSize: 14,
-                          padding: "9px 14px",
-                          border: `1px solid ${selected ? C.accent : C.border}`,
-                          background: selected ? C.accentSoft : C.bg,
-                          color: selected ? C.accent : C.text,
-                          borderRadius: 5,
-                          cursor: "pointer",
-                          fontWeight: selected ? 700 : 400,
                         }}
                       >
-                        {opt.label}
-                      </button>
+                        <span style={{ color: C.textDim }}>{fieldName}</span>
+                        <span style={{ color: label ? C.text : C.textDim, fontStyle: label ? "normal" : "italic" }}>
+                          {label || "Not yet chosen"}
+                        </span>
+                      </div>
                     );
                   })}
                 </div>
 
-                {stage.id === 6 && floorsInfo && (
-                  <div
-                    style={{
-                      marginTop: 14,
-                      paddingTop: 14,
-                      borderTop: `1px solid ${C.border}`,
-                      fontSize: 14,
-                      lineHeight: 1.55,
-                      color: C.text,
-                    }}
-                  >
-                    <strong>{floorsInfo.label}:</strong> {floorsInfo.detail}
-                  </div>
-                )}
+                <p style={{ fontSize: 12.5, color: C.textDim, lineHeight: 1.5, marginTop: 14, marginBottom: 0 }}>
+                  This is a schematic recap for orientation only — a simple
+                  illustration built from the choices you made, not a real
+                  elevation, section, or 3D model. Actual elevations,
+                  sections, and 3D representation must come from your
+                  architect's and structural engineer's real drawings
+                  (Stage 2) — those are based on your actual site and
+                  design, not a handful of multiple-choice answers.
+                </p>
               </div>
             )}
 
@@ -1149,6 +1506,63 @@ function AccountBar({ session, isPaid, unlockedStages, handleSignOut }) {
       <button onClick={handleSignOut} style={linkBtnStyle}>
         Sign out
       </button>
+    </div>
+  );
+}
+
+/**
+ * DrawingUpload — lets a user attach their own architectural/structural
+ * drawing files to their account via Supabase Storage. Defined at top
+ * level for the same reason as AuthPanel/AccountBar (stable identity
+ * across re-renders, so the file input doesn't get torn down).
+ *
+ * Requires a Storage bucket named "drawings" plus per-user folder
+ * policies — see supabase-storage-drawings-setup.sql for the one-time
+ * setup. Files are stored under a path of `${user.id}/...`, and the
+ * storage policies restrict each user to their own folder.
+ */
+function DrawingUpload({ session }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [uploadedName, setUploadedName] = useState("");
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !session?.user?.id) return;
+    setUploading(true);
+    setUploadError("");
+    setUploadedName("");
+    const path = `${session.user.id}/${Date.now()}_${file.name}`;
+    const { error } = await supabase.storage.from("drawings").upload(path, file);
+    setUploading(false);
+    if (error) {
+      setUploadError(
+        "Upload failed — this usually means the 'drawings' storage bucket isn't set up yet on this project. (" +
+          error.message +
+          ")"
+      );
+      return;
+    }
+    setUploadedName(file.name);
+  };
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+      <input
+        type="file"
+        accept=".pdf,.dwg,.jpg,.jpeg,.png"
+        onChange={handleFile}
+        style={{ fontFamily: FONT, fontSize: 13 }}
+      />
+      {uploading && (
+        <div style={{ fontSize: 12.5, color: C.textDim, marginTop: 8 }}>Uploading…</div>
+      )}
+      {uploadedName && (
+        <div style={{ fontSize: 12.5, color: C.ok, marginTop: 8 }}>
+          ✓ {uploadedName} uploaded and attached to your account.
+        </div>
+      )}
+      {uploadError && <div style={errorTextStyle}>{uploadError}</div>}
     </div>
   );
 }
