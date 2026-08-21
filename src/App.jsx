@@ -26,6 +26,7 @@
  */
 import React, { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabaseClient";
+import { PAYSTACK_PUBLIC_KEY, STAGE_PRICE_NAIRA, BUNDLE_PRICE_NAIRA } from "./paystackClient";
 
 /* ---------- Design tokens: clean engineering white/gray + one accent ---------- */
 const C = {
@@ -317,6 +318,16 @@ const STAGES = [
       "Proceeding without a structural engineer's stamp — this is a common shortcut that shows up as cracking later.",
       "Under-budgeting the BOQ by pricing only materials and skipping labour, waste allowance, and haulage.",
     ],
+    codeRefs: [
+      {
+        code: "Nigerian National Building Code (NBC) 2006",
+        note: "Nigeria's primary statutory building code — your building permit application is checked against this first, regardless of which structural design code your engineer uses.",
+      },
+      {
+        code: "BS 8110-1:1997 or Eurocode 2 (EN 1992-1-1)",
+        note: "Whichever your structural engineer confirms is governing your drawings — see the decision above.",
+      },
+    ],
     decisionPoints: [
       {
         key: "budget",
@@ -343,6 +354,23 @@ const STAGES = [
           have: [
             "Good — upload your drawing files below so they're attached to this project. Accepted formats: PDF, JPG/PNG (scanned sheets), or DWG.",
           ],
+        },
+      },
+      {
+        key: "codeStandard",
+        label: "Which structural design code is your engineer using?",
+        options: [
+          { value: "bs8110", label: "BS 8110 (legacy British Standard)" },
+          { value: "eurocode2", label: "Eurocode 2 (EN 1992)" },
+          { value: "unsure", label: "Not sure yet" },
+        ],
+        detail: {
+          bs8110:
+            "BS 8110-1:1997 was formally withdrawn in the UK in 2010, but it's still the code most Nigerian consultancies actually design to in practice — it hasn't disappeared locally the way it has in the UK. That's a legitimate, common choice; just make sure it's stated on your drawings and applied consistently, not mixed with Eurocode requirements on the same element.",
+          eurocode2:
+            "Eurocode 2 (EN 1992) is increasingly used in Nigeria, particularly by international firms and larger consultancies, and is the current standard in the UK and much of Europe. If your engineer is using it, that's a forward-looking choice — just confirm the UK or relevant National Annex being applied, since Eurocodes are deliberately adaptable by country.",
+          unsure:
+            "This is worth pinning down early, not left implicit. Ask your structural engineer directly which code governs your drawings — BS 8110 and Eurocode 2 give different (though usually similar) results for the same element, and a design shouldn't mix requirements from both on the same structure.",
         },
       },
     ],
@@ -392,6 +420,16 @@ const STAGES = [
       "Backfilling or building on the foundation before the minimum curing period.",
       "Using an ad-hoc mix ratio instead of the one specified in the structural drawing.",
     ],
+    codeRefs: [
+      {
+        code: "BS 8110-1:1997 or Eurocode 2 (EN 1992-1-1)",
+        note: "Governs concrete grade and mix design. The ratios given below are general guidance — the grade stated on your structural drawing always takes precedence.",
+      },
+      {
+        code: "BS 8004 or Eurocode 7 (EN 1997)",
+        note: "The dedicated foundation/geotechnical design codes — this is what your soil test result and foundation type (strip, raft, or pile) should ultimately be checked against by a geotechnical or structural engineer, not general guidance like this app.",
+      },
+    ],
     decisionPoints: [
       {
         key: "mixScenario",
@@ -437,6 +475,16 @@ const STAGES = [
       "Skipping the DPC to save cost — this is one of the most common causes of damp walls years later.",
       "Backfilling in one bulk layer, leaving air pockets that settle unevenly under floor slabs.",
     ],
+    codeRefs: [
+      {
+        code: "Nigerian National Building Code (NBC) 2006",
+        note: "Sets minimum damp-proofing requirements for Nigerian construction.",
+      },
+      {
+        code: "BS 8215 (Code of practice for design and installation of damp-proof courses)",
+        note: "A workmanship-focused reference for DPC detailing, commonly cited alongside the NBC. Plinth beam sizing itself follows the same structural code (BS 8110 or Eurocode 2) as the rest of the frame.",
+      },
+    ],
     deepDive: {
       title: "DPC and plinth beam, in detail",
       steps: [
@@ -465,6 +513,16 @@ const STAGES = [
     errors: [
       "Continuing block work above an opening without casting the lintel first.",
       "Rushing curing time on columns before the next floor's load is applied.",
+    ],
+    codeRefs: [
+      {
+        code: "BS 8110-1:1997 or Eurocode 2 (EN 1992-1-1)",
+        note: "Governs column, beam, and slab sizing and reinforcement — confirm which one applies from your Stage 2 decision.",
+      },
+      {
+        code: "BS 6399-2 or Eurocode 1 / EN 1991-1-4 (wind actions)",
+        note: "Governs wind loading. This is exactly why 3+ storey buildings need full engineering design rather than rule-of-thumb sizing — wind load on a tall building's face becomes a real structural input, not a rounding error.",
+      },
     ],
     decisionPoints: [
       {
@@ -497,6 +555,12 @@ const STAGES = [
     errors: [
       "Choosing a low pitch with a material that needs a steeper slope, causing leaks in the rains.",
       "Skipping truss bracing — trusses can rack sideways under wind load without it.",
+    ],
+    codeRefs: [
+      {
+        code: "BS 6399-2 or Eurocode 1 / EN 1991-1-4 (wind actions)",
+        note: "Governs wind-uplift design for roof structures and their fixings — this is the technical basis behind truss bracing requirements and fastener spacing, not just manufacturer preference.",
+      },
     ],
     deepDive: {
       title: "Roof structure & trusses, explained",
@@ -554,6 +618,17 @@ const STAGES = [
       "Skipping the formal inspection because the building 'looks done'.",
       "No as-built documentation left with the owner — this becomes a real problem for any future renovation.",
     ],
+    deepDive: {
+      title: "Inspection & handover, step by step",
+      steps: [
+        "Final structural and safety inspection: a qualified inspector (or your structural engineer) checks the completed building against the approved drawings — not against how it 'looks' finished. This covers structural elements, electrical safety, and fire/means-of-escape basics where applicable.",
+        "Snag list: walk the building systematically, room by room, logging every defect — a cracked tile, a door that doesn't close flush, a paint run — with a location and a responsible trade. Nothing gets fixed off a mental list; it gets fixed off a written one that both sides sign off against.",
+        "Closing out the snag list: each item is fixed, then re-inspected and marked closed individually. A snag list that's 'mostly done' isn't done — the last few items are usually the ones that get forgotten permanently if they're not tracked to explicit closure.",
+        "Certificate of completion / occupancy: apply through your local planning authority once the building matches its approved drawings. This is the document that makes the building legally fit for occupation — moving in without it carries real legal risk, not just a formality.",
+        "As-built drawings: your architect and structural engineer update the original drawings to reflect anything that changed during construction (a moved wall, a rerouted pipe run). This as-built set — not the original design drawings — is what any future renovation, extension, or repair should be based on.",
+        "Handover pack: gather the as-built drawings, warranty documents for major installations (roofing, electrical, plumbing fixtures), and any professional certificates into one set handed to the owner. This is the building's permanent record — treat it as seriously as the title documents.",
+      ],
+    },
   },
 ];
 
@@ -601,6 +676,11 @@ const SUMMARY_LABELS = {
     need: "Guided through producing drawings",
     have: "Uploaded own drawings",
   },
+  codeStandard: {
+    bs8110: "BS 8110 (legacy British Standard)",
+    eurocode2: "Eurocode 2 (EN 1992)",
+    unsure: "Not yet confirmed with engineer",
+  },
   mixScenario: {
     blinding: "Blinding / PCC",
     massFooting: "Mass concrete strip footing",
@@ -613,11 +693,114 @@ const SUMMARY_LABELS = {
   },
 };
 
+// Terms of Service and Privacy Policy content. Written as honest,
+// plain-language boilerplate — NOT reviewed by a lawyer. Given this
+// app gives real construction/structural guidance and will eventually
+// take payment, get an actual legal review before relying on this for
+// anything beyond an early-stage placeholder.
+const TERMS_CONTENT = {
+  title: "Terms of Service",
+  updated: "Last updated: August 2026",
+  sections: [
+    {
+      heading: "What this app is",
+      body: [
+        "Build Sequence is a general educational and organisational guide to residential construction, presented in stages with checklists, decision-based guidance, and common-error notes.",
+      ],
+    },
+    {
+      heading: "Not professional advice",
+      body: [
+        "Nothing in this app is architectural, structural engineering, surveying, or legal advice, and using it does not create a professional relationship of any kind. Every real design and construction decision — foundation type, structural sizing, drawings, approvals, and anything affecting safety or legal compliance — must be made by a licensed architect, structural engineer, surveyor, or other appropriate professional for your specific site and project.",
+        "The schematic illustration shown after Stage 9 is a visual recap of the choices you made in the app, not a real elevation, section, or 3D model, and must never be used as one.",
+      ],
+    },
+    {
+      heading: "No liability",
+      body: [
+        "This app is provided 'as is', without warranty of any kind. To the fullest extent permitted by law, the app's creator is not liable for any loss, damage, injury, or cost arising from use of this app, including reliance on any guidance, checklist, or illustration it contains.",
+      ],
+    },
+    {
+      heading: "Accounts",
+      body: [
+        "You're responsible for the accuracy of the information you provide when creating an account, and for keeping your password confidential.",
+      ],
+    },
+    {
+      heading: "Paid access",
+      body: [
+        "Some stages may require payment to unlock, either individually or as a bundle, as described in the app. Pricing and payment terms will be confirmed at the time payment is introduced.",
+      ],
+    },
+    {
+      heading: "Changes",
+      body: [
+        "These terms may be updated as the app develops. Continued use after a change means you accept the updated terms.",
+      ],
+    },
+    {
+      heading: "Contact",
+      body: ["Questions about these terms: [insert contact email]."],
+    },
+  ],
+};
+
+const PRIVACY_CONTENT = {
+  title: "Privacy Policy",
+  updated: "Last updated: August 2026",
+  sections: [
+    {
+      heading: "What's collected",
+      body: [
+        "Account email and password (handled by Supabase Authentication — your password is never visible to or stored directly by this app).",
+        "Waitlist email addresses, if you submit one on a locked stage.",
+        "Files you choose to upload on Stage 2 (architectural/structural drawings), stored privately and restricted to your own account.",
+        "Your project decisions (soil type, budget, floor count, etc.) and checklist progress are kept only in your browser's memory for the current session and are not sent to or stored on any server.",
+      ],
+    },
+    {
+      heading: "What's not collected",
+      body: [
+        "No advertising trackers, no third-party analytics pixels, and no browser storage (cookies/localStorage) are used by this app at this time.",
+      ],
+    },
+    {
+      heading: "How data is used",
+      body: [
+        "Account and payment-status data is used solely to control access to paid stages. Waitlist emails are used solely to notify you when full access opens. Uploaded drawings are stored solely for your own reference within your account.",
+      ],
+    },
+    {
+      heading: "Third parties",
+      body: [
+        "Account data, uploaded files, and payment status are stored and processed by Supabase, acting as a data processor for this app. No data is sold or shared with advertisers.",
+      ],
+    },
+    {
+      heading: "Your rights",
+      body: [
+        "You can request deletion of your account and associated data at any time by contacting [insert contact email].",
+      ],
+    },
+    {
+      heading: "Changes",
+      body: [
+        "This policy may be updated as the app develops. Material changes will be reflected here with an updated date.",
+      ],
+    },
+    {
+      heading: "Contact",
+      body: ["Questions about this policy: [insert contact email]."],
+    },
+  ],
+};
+
 const FREE_LIMIT = 3;
 
 export default function App() {
   /* ---------- Core state ---------- */
-  const [page, setPage] = useState("landing"); // "landing" | "overview" | "detail"
+  const [page, setPage] = useState("landing"); // "landing" | "overview" | "detail" | "summary" | "terms" | "privacy"
   const [active, setActive] = useState(1);
   const [projectName, setProjectName] = useState("UNTITLED PROJECT");
   const [decisions, setDecisions] = useState({});
@@ -662,17 +845,21 @@ export default function App() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  const refetchProfile = async (userId) => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, email, is_paid, unlocked_stages")
+      .eq("id", userId)
+      .single();
+    setProfile(data || null);
+  };
+
   useEffect(() => {
     if (!session?.user) {
       setProfile(null);
       return;
     }
-    supabase
-      .from("profiles")
-      .select("id, email, is_paid, unlocked_stages")
-      .eq("id", session.user.id)
-      .single()
-      .then(({ data }) => setProfile(data || null));
+    refetchProfile(session.user.id);
   }, [session]);
 
   // The moment a session appears while we're still on the landing
@@ -685,6 +872,72 @@ export default function App() {
   const unlockedStages = profile?.unlocked_stages || [];
   const isUnlocked = (stageId) =>
     stageId <= FREE_LIMIT || isPaid || unlockedStages.includes(stageId);
+
+  /* ---------- Payment (Paystack) ----------
+   * The popup only ever tells the frontend "the user completed
+   * checkout" — it does NOT grant access by itself. Access is only
+   * granted after /api/verify-payment confirms the payment with
+   * Paystack server-side and updates Supabase. This is what stops
+   * someone from faking a success in their browser's dev tools. */
+  const [paying, setPaying] = useState(null); // null | "bundle" | number (stageId)
+  const [payError, setPayError] = useState("");
+
+  const handlePayment = (purchaseType, stageId) => {
+    if (!session?.user) return;
+    if (!window.PaystackPop) {
+      setPayError("Payment isn't available right now — please refresh and try again.");
+      return;
+    }
+    setPayError("");
+    setPaying(purchaseType === "bundle" ? "bundle" : stageId);
+
+    const amountNaira = purchaseType === "bundle" ? BUNDLE_PRICE_NAIRA : STAGE_PRICE_NAIRA;
+
+    const popup = window.PaystackPop.setup({
+      key: PAYSTACK_PUBLIC_KEY,
+      email: session.user.email,
+      amount: amountNaira * 100, // Paystack expects kobo
+      currency: "NGN",
+      metadata: { userId: session.user.id, purchaseType, stageId },
+      callback: (response) => {
+        fetch("/api/verify-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reference: response.reference,
+            userId: session.user.id,
+            purchaseType,
+            stageId,
+          }),
+        })
+          .then((r) => r.json())
+          .then((result) => {
+            setPaying(null);
+            if (!result.success) {
+              setPayError(
+                "Payment went through, but we couldn't confirm it automatically. Contact support with reference " +
+                  response.reference +
+                  "."
+              );
+              return;
+            }
+            refetchProfile(session.user.id);
+          })
+          .catch(() => {
+            setPaying(null);
+            setPayError(
+              "Payment went through, but we couldn't confirm it automatically. Contact support with reference " +
+                response.reference +
+                "."
+            );
+          });
+      },
+      onClose: () => {
+        setPaying(null);
+      },
+    });
+    popup.openIframe();
+  };
 
   const handleAuth = async () => {
     setAuthError("");
@@ -800,6 +1053,14 @@ export default function App() {
 
 
   /* ================= RENDER ================= */
+
+  // ---- Legal pages: reachable regardless of sign-in state ----
+  if (page === "terms") {
+    return <LegalPage content={TERMS_CONTENT} onBack={() => setPage(session ? "overview" : "landing")} />;
+  }
+  if (page === "privacy") {
+    return <LegalPage content={PRIVACY_CONTENT} onBack={() => setPage(session ? "overview" : "landing")} />;
+  }
 
   // ---- Landing page (no session) ----
   if (!session) {
@@ -944,6 +1205,7 @@ export default function App() {
             />
           </div>
         </main>
+        <LegalFooter setPage={setPage} />
       </div>
     );
   }
@@ -1039,6 +1301,110 @@ export default function App() {
             })}
           </div>
         </main>
+        <LegalFooter setPage={setPage} />
+      </div>
+    );
+  }
+
+  // ---- Project summary (signed in, page === "summary") ----
+  // Reached from the button at the bottom of Stage 9. Kept as its own
+  // page rather than bundled into Stage 9's content, since it's a
+  // wrap-up of the whole project, not part of the inspection/handover
+  // stage itself.
+  if (page === "summary") {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text }}>
+        <header
+          style={{
+            borderBottom: `1px solid ${C.border}`,
+            padding: "18px 24px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 10,
+            background: "rgba(255,255,255,0.85)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <button onClick={() => goToStage(9)} style={linkBtnStyle}>
+              ← Back to Stage 9
+            </button>
+            <div style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+              <IconBlueprintRoll size={22} color={C.accent} />
+              Build Sequence
+            </div>
+          </div>
+          <AccountBar session={session} isPaid={isPaid} unlockedStages={unlockedStages} handleSignOut={handleSignOut} />
+        </header>
+
+        <main style={{ maxWidth: 640, margin: "0 auto", padding: "32px 24px 60px" }}>
+          <div style={{ fontSize: 12.5, color: C.textDim, letterSpacing: "0.06em", marginBottom: 6 }}>
+            PROJECT COMPLETE
+          </div>
+          <h2 style={{ fontSize: 26, fontWeight: 700, margin: "0 0 6px" }}>Project Summary</h2>
+          <p style={{ color: C.textDim, lineHeight: 1.6, fontSize: 15, marginBottom: 22 }}>
+            A recap of every choice made across your nine stages, with a schematic illustration built from those choices.
+          </p>
+
+          <div
+            style={{
+              border: `1px solid ${C.border}`,
+              background: C.panel,
+              borderRadius: 6,
+              padding: 20,
+              marginBottom: 22,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+            }}
+          >
+            <SummaryElevation decisions={decisions} />
+
+            <div style={{ marginTop: 18 }}>
+              {Object.keys(SUMMARY_LABELS).map((key) => {
+                const rawValue = decisions[key];
+                const label = rawValue ? SUMMARY_LABELS[key][rawValue] : null;
+                const fieldName =
+                  { soil: "Soil condition", landSize: "Land size", budget: "Budget tier",
+                    drawings: "Drawings", codeStandard: "Design code", mixScenario: "Foundation mix scenario", floors: "Floor count" }[key];
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      padding: "8px 0",
+                      borderBottom: `1px solid ${C.border}`,
+                      fontSize: 14,
+                    }}
+                  >
+                    <span style={{ color: C.textDim }}>{fieldName}</span>
+                    <span style={{ color: label ? C.text : C.textDim, fontStyle: label ? "normal" : "italic" }}>
+                      {label || "Not yet chosen"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <p style={{ fontSize: 12.5, color: C.textDim, lineHeight: 1.5, marginTop: 16, marginBottom: 0 }}>
+              This is a schematic recap for orientation only — a simple
+              illustration built from the choices you made, not a real
+              elevation, section, or 3D model. Actual elevations, sections,
+              and 3D representation must come from your architect's and
+              structural engineer's real drawings (Stage 2) — those are
+              based on your actual site and design, not a handful of
+              multiple-choice answers.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => setPage("overview")} style={secondaryBtnStyle(false)}>
+              ← All stages
+            </button>
+          </div>
+        </main>
+        <LegalFooter setPage={setPage} />
       </div>
     );
   }
@@ -1127,36 +1493,75 @@ export default function App() {
             }}
           >
             <div style={{ fontWeight: 700, color: C.warn, marginBottom: 8 }}>
-              Full version — launching soon
+              🔒 This stage is locked
             </div>
-            <p style={{ fontSize: 13.5, color: C.textDim, lineHeight: 1.5, marginBottom: 6 }}>
-              Available either one stage at a time, or as a full bundle at a
-              discount. Payment isn't live yet — leave your email and
-              you'll hear when it opens.
+            <p style={{ fontSize: 13.5, color: C.textDim, lineHeight: 1.5, marginBottom: 16 }}>
+              Unlock just this stage, or get all {STAGES.length - FREE_LIMIT} remaining
+              stages together at a discount.
             </p>
-            {waitlistSubmitted ? (
-              <div style={{ color: C.ok, fontSize: 13.5, marginTop: 10 }}>
-                ✓ You're on the list — we'll email you when it's ready.
-              </div>
-            ) : (
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                <input
-                  type="email"
-                  placeholder="you@email.com"
-                  value={waitlistEmail}
-                  onChange={(e) => setWaitlistEmail(e.target.value)}
-                  style={{ ...inputStyle, flex: 1, minWidth: 180, marginBottom: 0 }}
-                />
-                <button
-                  onClick={submitWaitlist}
-                  disabled={waitlistSubmitting}
-                  style={primaryBtnStyle(waitlistSubmitting)}
-                >
-                  {waitlistSubmitting ? "Saving..." : "Notify me"}
-                </button>
-              </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button
+                onClick={() => handlePayment("stage", stage.id)}
+                disabled={paying === stage.id}
+                style={secondaryBtnStyle(paying === stage.id)}
+              >
+                {paying === stage.id
+                  ? "Opening checkout..."
+                  : `Unlock this stage — ₦${STAGE_PRICE_NAIRA.toLocaleString()}`}
+              </button>
+              <button
+                onClick={() => handlePayment("bundle")}
+                disabled={paying === "bundle"}
+                style={primaryBtnStyle(paying === "bundle")}
+              >
+                {paying === "bundle"
+                  ? "Opening checkout..."
+                  : `Unlock all ${STAGES.length - FREE_LIMIT} remaining stages — ₦${BUNDLE_PRICE_NAIRA.toLocaleString()}`}
+              </button>
+            </div>
+
+            {payError && (
+              <div style={{ ...errorTextStyle, marginTop: 12 }}>{payError}</div>
             )}
-            {waitlistError && <div style={errorTextStyle}>{waitlistError}</div>}
+
+            <div
+              style={{
+                marginTop: 16,
+                paddingTop: 12,
+                borderTop: `1px solid ${C.border}`,
+              }}
+            >
+              {waitlistSubmitted ? (
+                <div style={{ color: C.ok, fontSize: 12.5 }}>
+                  ✓ You're also on our email list — thanks.
+                </div>
+              ) : (
+                <>
+                  <p style={{ fontSize: 12, color: C.textDim, marginBottom: 8 }}>
+                    Not ready to buy yet? Leave your email and we'll let you
+                    know about updates and offers.
+                  </p>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <input
+                      type="email"
+                      placeholder="you@email.com"
+                      value={waitlistEmail}
+                      onChange={(e) => setWaitlistEmail(e.target.value)}
+                      style={{ ...inputStyle, flex: 1, minWidth: 160, marginBottom: 0, fontSize: 12.5 }}
+                    />
+                    <button
+                      onClick={submitWaitlist}
+                      disabled={waitlistSubmitting}
+                      style={{ ...secondaryBtnStyle(waitlistSubmitting), padding: "8px 12px", fontSize: 12.5 }}
+                    >
+                      {waitlistSubmitting ? "..." : "Notify me"}
+                    </button>
+                  </div>
+                </>
+              )}
+              {waitlistError && <div style={errorTextStyle}>{waitlistError}</div>}
+            </div>
           </div>
         ) : (
           <>
@@ -1283,60 +1688,32 @@ export default function App() {
               </div>
             )}
 
-            {/* Stage 9 only: schematic recap of every choice made across
-                the app, plus the elevation-style illustration. */}
-            {stage.id === 9 && (
+            {/* Governing building codes, where a stage has relevant ones */}
+            {stage.codeRefs && (
               <div
                 style={{
-                  border: `1px solid ${C.border}`,
-                  background: C.panel,
+                  border: `1px solid ${C.accent}`,
+                  background: C.accentSoft,
                   borderRadius: 6,
                   padding: 18,
                   marginBottom: 22,
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                 }}
               >
-                <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 10 }}>
-                  PROJECT SUMMARY — YOUR CHOICES SO FAR
+                <div style={{ fontSize: 12.5, color: C.accentDim, fontWeight: 700, marginBottom: 10 }}>
+                  RELEVANT BUILDING CODES
                 </div>
-
-                <SummaryElevation decisions={decisions} />
-
-                <div style={{ marginTop: 16 }}>
-                  {Object.keys(SUMMARY_LABELS).map((key) => {
-                    const rawValue = decisions[key];
-                    const label = rawValue ? SUMMARY_LABELS[key][rawValue] : null;
-                    const fieldName =
-                      { soil: "Soil condition", landSize: "Land size", budget: "Budget tier",
-                        drawings: "Drawings", mixScenario: "Foundation mix scenario", floors: "Floor count" }[key];
-                    return (
-                      <div
-                        key={key}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          padding: "7px 0",
-                          borderBottom: `1px solid ${C.border}`,
-                          fontSize: 14,
-                        }}
-                      >
-                        <span style={{ color: C.textDim }}>{fieldName}</span>
-                        <span style={{ color: label ? C.text : C.textDim, fontStyle: label ? "normal" : "italic" }}>
-                          {label || "Not yet chosen"}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <p style={{ fontSize: 12.5, color: C.textDim, lineHeight: 1.5, marginTop: 14, marginBottom: 0 }}>
-                  This is a schematic recap for orientation only — a simple
-                  illustration built from the choices you made, not a real
-                  elevation, section, or 3D model. Actual elevations,
-                  sections, and 3D representation must come from your
-                  architect's and structural engineer's real drawings
-                  (Stage 2) — those are based on your actual site and
-                  design, not a handful of multiple-choice answers.
+                {stage.codeRefs.map((c, i) => (
+                  <div key={i} style={{ marginBottom: i === stage.codeRefs.length - 1 ? 0 : 12 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{c.code}</div>
+                    <div style={{ fontSize: 13.5, color: C.textDim, lineHeight: 1.5, marginTop: 2 }}>
+                      {c.note}
+                    </div>
+                  </div>
+                ))}
+                <p style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginTop: 12, marginBottom: 0 }}>
+                  These are pointers for orientation, not a substitute for your registered structural engineer confirming
+                  which code governs your specific drawings — and a design should never mix requirements from different
+                  codes on the same element.
                 </p>
               </div>
             )}
@@ -1394,15 +1771,21 @@ export default function App() {
           >
             ← Prev stage
           </button>
-          <button
-            disabled={active === STAGES.length}
-            onClick={() => setActive((a) => Math.min(STAGES.length, a + 1))}
-            style={secondaryBtnStyle(active === STAGES.length)}
-          >
-            Next stage →
-          </button>
+          {active === STAGES.length ? (
+            <button onClick={() => setPage("summary")} style={primaryBtnStyle(false)}>
+              View project summary →
+            </button>
+          ) : (
+            <button
+              onClick={() => setActive((a) => Math.min(STAGES.length, a + 1))}
+              style={secondaryBtnStyle(false)}
+            >
+              Next stage →
+            </button>
+          )}
         </div>
       </main>
+      <LegalFooter setPage={setPage} />
     </div>
   );
 }
@@ -1506,6 +1889,73 @@ function AccountBar({ session, isPaid, unlockedStages, handleSignOut }) {
       <button onClick={handleSignOut} style={linkBtnStyle}>
         Sign out
       </button>
+    </div>
+  );
+}
+
+/**
+ * LegalFooter — small "Terms · Privacy" link row shown at the bottom
+ * of every page. Top-level component (not defined inside App()) for
+ * the same stability reason as AuthPanel/AccountBar.
+ */
+function LegalFooter({ setPage }) {
+  return (
+    <div
+      style={{
+        maxWidth: 900,
+        margin: "40px auto 0",
+        padding: "16px 24px",
+        borderTop: `1px solid ${C.border}`,
+        display: "flex",
+        gap: 16,
+        fontSize: 12.5,
+        color: C.textDim,
+      }}
+    >
+      <button onClick={() => setPage("terms")} style={linkBtnStyle}>
+        Terms of Service
+      </button>
+      <button onClick={() => setPage("privacy")} style={linkBtnStyle}>
+        Privacy Policy
+      </button>
+    </div>
+  );
+}
+
+/**
+ * LegalPage — shared renderer for the Terms and Privacy pages, which
+ * both use the same { title, updated, sections: [{heading, body}] }
+ * shape (TERMS_CONTENT / PRIVACY_CONTENT above).
+ */
+function LegalPage({ content, onBack }) {
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text }}>
+      <header
+        style={{
+          borderBottom: `1px solid ${C.border}`,
+          padding: "18px 24px",
+          background: "rgba(255,255,255,0.85)",
+          backdropFilter: "blur(4px)",
+        }}
+      >
+        <button onClick={onBack} style={linkBtnStyle}>
+          ← Back
+        </button>
+      </header>
+      <main style={{ maxWidth: 640, margin: "0 auto", padding: "32px 24px 80px" }}>
+        <h2 style={{ fontSize: 26, fontWeight: 700, margin: "0 0 4px" }}>{content.title}</h2>
+        <div style={{ fontSize: 12.5, color: C.textDim, marginBottom: 24 }}>{content.updated}</div>
+        {content.sections.map((s, i) => (
+          <div key={i} style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>{s.heading}</div>
+            {s.body.map((p, j) => (
+              <p key={j} style={{ fontSize: 14, lineHeight: 1.6, color: C.textDim, margin: "0 0 8px" }}>
+                {p}
+              </p>
+            ))}
+          </div>
+        ))}
+      </main>
     </div>
   );
 }
