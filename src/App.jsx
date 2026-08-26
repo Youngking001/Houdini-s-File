@@ -4,20 +4,25 @@
  * An interactive, decision-driven construction guide (site assessment
  * through handover).
  *
- * Structure (v2):
- *  - Landing view: shown whenever there's no signed-in session. Gives
- *    an overview of the app and hosts the sign in / sign up form.
+ * Structure:
+ *  - Landing view: shown whenever there's no signed-in session.
  *  - Stage overview: shown right after sign-in — a grid of all 9
  *    stages with progress + lock status.
  *  - Stage detail: a single stage's content, reachable either by
  *    tapping a card in the overview, or via the dropdown / prev-next
  *    controls inside detail view itself.
+ *  - Project summary: reached from Stage 9, recaps every choice made.
  *
- * Branching content: answers recorded in one stage (soil type, budget
- * tier, floor count) change guidance shown in later stages — see
- * dynamicSummary() and the SOIL_TEXT / ROOF_TEXT lookup tables, plus
- * per-decision "detail" text attached directly in the STAGES array
- * (see decisionPoints[].detail below).
+ * Checklist items can be either:
+ *  - manual (the user ticks them themselves), or
+ *  - linked to a decision (checklist.linkedDecision = a decisions{}
+ *    key) — these auto-tick the moment that decision is answered,
+ *    since the real-world "is this actually done" for that item is
+ *    genuinely determined by which choice was made, not by a
+ *    self-report checkbox. Two people who started on the same option
+ *    can still end up with different downstream items ticked, because
+ *    what's "done" depends on the specific answer, not just that an
+ *    answer exists.
  *
  * All progress/decision state is kept in React state only — nothing
  * persists between page loads except account + unlock status, which
@@ -37,19 +42,16 @@ const C = {
   borderStrong: "#C3C9D1",
   text: "#1B1F24",
   textDim: "#5B6472",
-  accent: "#1D4ED8", // primary brand / CTA blue
+  accent: "#1D4ED8",
   accentDim: "#1E40AF",
   accentSoft: "rgba(29,78,216,0.08)",
-  yellow: "#D9A017", // safety-yellow, used sparingly as a second accent
+  yellow: "#D9A017",
   yellowSoft: "rgba(217,160,23,0.10)",
   ok: "#15803D",
-  warn: "#B91C1C", // locked / error / caution
+  warn: "#B91C1C",
   warnSoft: "rgba(185,28,28,0.06)",
 };
 
-// Subtle blue + yellow color wash behind the white/gray base. Used on
-// full-page backgrounds via backgroundImage — kept low-opacity so text
-// contrast stays clean.
 const BG_WASH = `
   radial-gradient(ellipse 700px 500px at 10% -5%, rgba(29,78,216,0.07), transparent 60%),
   radial-gradient(ellipse 600px 500px at 100% 15%, rgba(217,160,23,0.08), transparent 55%),
@@ -59,10 +61,6 @@ const BG_WASH = `
 
 const FONT = "'Times New Roman', Times, serif";
 
-/* ---------- Simple line-art civil engineering sketches ----------
- * Plain stroke-only SVGs (no fill) so they read as sketches, not
- * clip-art. Used both small (feature icons) and large + faint
- * (decorative background elements on the landing page). */
 function IconHardHat({ size = 40, color = C.accent, opacity = 1 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
@@ -72,7 +70,6 @@ function IconHardHat({ size = 40, color = C.accent, opacity = 1 }) {
     </svg>
   );
 }
-
 function IconSetSquare({ size = 40, color = C.accent, opacity = 1 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
@@ -83,7 +80,6 @@ function IconSetSquare({ size = 40, color = C.accent, opacity = 1 }) {
     </svg>
   );
 }
-
 function IconLevel({ size = 40, color = C.accent, opacity = 1 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
@@ -94,7 +90,6 @@ function IconLevel({ size = 40, color = C.accent, opacity = 1 }) {
     </svg>
   );
 }
-
 function IconClipboard({ size = 40, color = C.accent, opacity = 1 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
@@ -106,7 +101,6 @@ function IconClipboard({ size = 40, color = C.accent, opacity = 1 }) {
     </svg>
   );
 }
-
 function IconCrane({ size = 40, color = C.accent, opacity = 1 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
@@ -118,7 +112,6 @@ function IconCrane({ size = 40, color = C.accent, opacity = 1 }) {
     </svg>
   );
 }
-
 function IconBlueprintRoll({ size = 40, color = C.accent, opacity = 1 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={opacity}>
@@ -132,8 +125,6 @@ function IconBlueprintRoll({ size = 40, color = C.accent, opacity = 1 }) {
   );
 }
 
-// Faint, large, rotated sketches scattered behind the landing page's
-// content — decorative only (pointer-events: none, low opacity).
 function LandingSketches() {
   const items = [
     { Icon: IconSetSquare, top: "6%", left: "3%", size: 130, rot: -8, color: C.accent },
@@ -144,17 +135,7 @@ function LandingSketches() {
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
       {items.map((it, i) => (
-        <div
-          key={i}
-          style={{
-            position: "absolute",
-            top: it.top,
-            left: it.left,
-            right: it.right,
-            bottom: it.bottom,
-            transform: `rotate(${it.rot}deg)`,
-          }}
-        >
+        <div key={i} style={{ position: "absolute", top: it.top, left: it.left, right: it.right, bottom: it.bottom, transform: `rotate(${it.rot}deg)` }}>
           <it.Icon size={it.size} color={it.color} opacity={0.1} />
         </div>
       ))}
@@ -162,73 +143,42 @@ function LandingSketches() {
   );
 }
 
-/**
- * SummaryElevation — a schematic front-elevation sketch for Stage 9
- * that reflects the choices made earlier in the app: floor count sets
- * storey count, soil type sets the foundation symbol drawn underneath
- * (strip / raft / piles), and budget tier tints the roof.
- *
- * Deliberately NOT presented as a real elevation or section drawing —
- * it's a schematic recap for orientation only. Actual elevations,
- * sections, and 3D representation must come from the architect's and
- * structural engineer's real drawings (see Stage 2). Faking those with
- * any accuracy from a handful of multiple-choice answers isn't
- * possible, and presenting one as if it were real would be actively
- * misleading for something people build with real money.
- */
 function SummaryElevation({ decisions }) {
-  const floorsCount =
-    decisions.floors === "3+" ? 3 : decisions.floors === "2" ? 2 : 1;
+  const floorsCount = decisions.floors === "3+" ? 3 : decisions.floors === "2" ? 2 : 1;
   const floorHeight = 46;
   const floorWidth = 170;
   const baseX = 65;
   const groundY = 210;
-  const roofColor =
-    decisions.budget === "premium"
-      ? C.yellow
-      : decisions.budget === "economy"
-      ? C.borderStrong
-      : C.accent;
+  const roofColor = decisions.budget === "premium" ? C.yellow : decisions.budget === "economy" ? C.borderStrong : C.accent;
 
   const floorRects = [];
   for (let i = 0; i < floorsCount; i++) {
     const y = groundY - floorHeight * (i + 1);
-    floorRects.push(
-      <rect key={"f" + i} x={baseX} y={y} width={floorWidth} height={floorHeight} fill="#FFFFFF" stroke={C.text} strokeWidth="2" />
-    );
-    floorRects.push(
-      <rect key={"w1-" + i} x={baseX + 18} y={y + 14} width={26} height={20} fill="none" stroke={C.textDim} strokeWidth="1.5" />
-    );
-    floorRects.push(
-      <rect key={"w2-" + i} x={baseX + floorWidth - 44} y={y + 14} width={26} height={20} fill="none" stroke={C.textDim} strokeWidth="1.5" />
-    );
+    floorRects.push(<rect key={"f" + i} x={baseX} y={y} width={floorWidth} height={floorHeight} fill="#FFFFFF" stroke={C.text} strokeWidth="2" />);
+    floorRects.push(<rect key={"w1-" + i} x={baseX + 18} y={y + 14} width={26} height={20} fill="none" stroke={C.textDim} strokeWidth="1.5" />);
+    floorRects.push(<rect key={"w2-" + i} x={baseX + floorWidth - 44} y={y + 14} width={26} height={20} fill="none" stroke={C.textDim} strokeWidth="1.5" />);
   }
 
   const roofBaseY = groundY - floorHeight * floorsCount;
   const roofTopY = roofBaseY - 38;
 
-  const foundationTopY = groundY;
   let foundationEl;
   let groundLineY;
   if (decisions.soil === "waterlogged") {
     groundLineY = groundY + 30;
     foundationEl = (
       <g>
-        <line x1={baseX + 14} y1={foundationTopY} x2={baseX + 14} y2={groundLineY} stroke={C.text} strokeWidth="3" />
-        <line x1={baseX + floorWidth / 2} y1={foundationTopY} x2={baseX + floorWidth / 2} y2={groundLineY} stroke={C.text} strokeWidth="3" />
-        <line x1={baseX + floorWidth - 14} y1={foundationTopY} x2={baseX + floorWidth - 14} y2={groundLineY} stroke={C.text} strokeWidth="3" />
+        <line x1={baseX + 14} y1={groundY} x2={baseX + 14} y2={groundLineY} stroke={C.text} strokeWidth="3" />
+        <line x1={baseX + floorWidth / 2} y1={groundY} x2={baseX + floorWidth / 2} y2={groundLineY} stroke={C.text} strokeWidth="3" />
+        <line x1={baseX + floorWidth - 14} y1={groundY} x2={baseX + floorWidth - 14} y2={groundLineY} stroke={C.text} strokeWidth="3" />
       </g>
     );
   } else if (decisions.soil === "clay") {
     groundLineY = groundY + 14;
-    foundationEl = (
-      <rect x={baseX - 18} y={foundationTopY} width={floorWidth + 36} height={14} fill={C.bgAlt} stroke={C.text} strokeWidth="2" />
-    );
+    foundationEl = <rect x={baseX - 18} y={groundY} width={floorWidth + 36} height={14} fill={C.bgAlt} stroke={C.text} strokeWidth="2" />;
   } else {
     groundLineY = groundY + 10;
-    foundationEl = (
-      <rect x={baseX - 6} y={foundationTopY} width={floorWidth + 12} height={10} fill={C.bgAlt} stroke={C.text} strokeWidth="2" />
-    );
+    foundationEl = <rect x={baseX - 6} y={groundY} width={floorWidth + 12} height={10} fill={C.bgAlt} stroke={C.text} strokeWidth="2" />;
   }
 
   return (
@@ -236,12 +186,7 @@ function SummaryElevation({ decisions }) {
       <line x1="15" y1={groundLineY} x2="285" y2={groundLineY} stroke={C.border} strokeWidth="2" />
       {foundationEl}
       {floorRects}
-      <polygon
-        points={`${baseX - 10},${roofBaseY} ${baseX + floorWidth / 2},${roofTopY} ${baseX + floorWidth + 10},${roofBaseY}`}
-        fill={roofColor}
-        stroke={C.text}
-        strokeWidth="2"
-      />
+      <polygon points={`${baseX - 10},${roofBaseY} ${baseX + floorWidth / 2},${roofTopY} ${baseX + floorWidth + 10},${roofBaseY}`} fill={roofColor} stroke={C.text} strokeWidth="2" />
     </svg>
   );
 }
@@ -252,14 +197,13 @@ const STAGES = [
     id: 1,
     name: "Site Assessment & Documentation",
     weight: 3,
-    summary:
-      "Confirm legal title, boundaries, and ground conditions before anything is designed. This stage produces the facts every later decision depends on.",
+    summary: "Confirm legal title, boundaries, and ground conditions before anything is designed. This stage produces the facts every later decision depends on.",
     checklist: [
-      "Certificate of Occupancy / land title verified",
-      "Survey plan obtained and beacons located on site",
-      "Soil test carried out (bearing capacity + water table)",
-      "Setback / zoning rules confirmed with local planning authority",
-      "Topographic survey done if plot is sloped",
+      { text: "Certificate of Occupancy / land title verified" },
+      { text: "Survey plan obtained and beacons located on site" },
+      { text: "Soil test carried out (bearing capacity + water table)", linkedDecision: "soil" },
+      { text: "Setback / zoning rules confirmed with local planning authority", linkedDecision: "landSize" },
+      { text: "Topographic survey done if plot is sloped" },
     ],
     errors: [
       "Starting excavation before the soil test result is back — the foundation type downstream depends on it.",
@@ -305,28 +249,21 @@ const STAGES = [
     id: 2,
     name: "Planning & Design",
     weight: 3,
-    summary:
-      "Architectural, structural, and MEP drawings are produced and reconciled here, along with the Bill of Quantities that will govern cost tracking.",
+    summary: "Architectural, structural, and MEP drawings are produced and reconciled here, along with the Bill of Quantities that will govern cost tracking.",
     checklist: [
-      "Architectural drawings finalised and client-approved",
-      "Structural drawings signed off by a registered structural engineer",
-      "Electrical & plumbing (MEP) drawings coordinated with structural",
-      "Bill of Quantities (BOQ) prepared",
-      "Building permit application submitted",
+      { text: "Architectural drawings finalised and client-approved", linkedDecision: "drawings" },
+      { text: "Structural drawings signed off by a registered structural engineer", linkedDecision: "codeStandard" },
+      { text: "Electrical & plumbing (MEP) drawings coordinated with structural" },
+      { text: "Bill of Quantities (BOQ) prepared", linkedDecision: "budget" },
+      { text: "Building permit application submitted" },
     ],
     errors: [
       "Proceeding without a structural engineer's stamp — this is a common shortcut that shows up as cracking later.",
       "Under-budgeting the BOQ by pricing only materials and skipping labour, waste allowance, and haulage.",
     ],
     codeRefs: [
-      {
-        code: "Nigerian National Building Code (NBC) 2006",
-        note: "Nigeria's primary statutory building code — your building permit application is checked against this first, regardless of which structural design code your engineer uses.",
-      },
-      {
-        code: "BS 8110-1:1997 or Eurocode 2 (EN 1992-1-1)",
-        note: "Whichever your structural engineer confirms is governing your drawings — see the decision above.",
-      },
+      { code: "Nigerian National Building Code (NBC) 2006", note: "Nigeria's primary statutory building code — your building permit application is checked against this first, regardless of which structural design code your engineer uses." },
+      { code: "BS 8110-1:1997 or Eurocode 2 (EN 1992-1-1)", note: "Whichever your structural engineer confirms is governing your drawings — see the decision above." },
     ],
     decisionPoints: [
       {
@@ -351,9 +288,7 @@ const STAGES = [
             "Structural drawings & reinforcement detailing: engage a registered structural engineer separately from the architect. Structural drawings include a bar schedule for every reinforced element — each entry lists a bar mark, diameter, shape (straight, L-bend, U-bend, stirrup, etc.), cut length, and quantity. This is what your site steel-fixer works from, and it's also what a quantity surveyor uses to price the steel line in your BOQ. Cover thickness and lap lengths (how far bars overlap where they're spliced) are specified here too — both matter for durability, not just strength.",
             "Electrical & plumbing (MEP) coordination: MEP drawings must be overlaid on the structural drawing before casting, not adjusted after. The structural engineer needs to know where conduit runs and plumbing stacks pass through slabs and beams, so sleeves and openings can be built into the formwork in advance. Coordinating this afterward means chasing finished concrete — weakening it — instead of casting it correctly the first time.",
           ],
-          have: [
-            "Good — upload your drawing files below so they're attached to this project. Accepted formats: PDF, JPG/PNG (scanned sheets), or DWG.",
-          ],
+          have: ["Good — upload your drawing files below so they're attached to this project. Accepted formats: PDF, JPG/PNG (scanned sheets), or DWG."],
         },
       },
       {
@@ -365,29 +300,24 @@ const STAGES = [
           { value: "unsure", label: "Not sure yet" },
         ],
         detail: {
-          bs8110:
-            "BS 8110-1:1997 was formally withdrawn in the UK in 2010, but it's still the code most Nigerian consultancies actually design to in practice — it hasn't disappeared locally the way it has in the UK. That's a legitimate, common choice; just make sure it's stated on your drawings and applied consistently, not mixed with Eurocode requirements on the same element.",
-          eurocode2:
-            "Eurocode 2 (EN 1992) is increasingly used in Nigeria, particularly by international firms and larger consultancies, and is the current standard in the UK and much of Europe. If your engineer is using it, that's a forward-looking choice — just confirm the UK or relevant National Annex being applied, since Eurocodes are deliberately adaptable by country.",
-          unsure:
-            "This is worth pinning down early, not left implicit. Ask your structural engineer directly which code governs your drawings — BS 8110 and Eurocode 2 give different (though usually similar) results for the same element, and a design shouldn't mix requirements from both on the same structure.",
+          bs8110: "BS 8110-1:1997 was formally withdrawn in the UK in 2010, but it's still the code most Nigerian consultancies actually design to in practice — it hasn't disappeared locally the way it has in the UK. That's a legitimate, common choice; just make sure it's stated on your drawings and applied consistently, not mixed with Eurocode requirements on the same element.",
+          eurocode2: "Eurocode 2 (EN 1992) is increasingly used in Nigeria, particularly by international firms and larger consultancies, and is the current standard in the UK and much of Europe. If your engineer is using it, that's a forward-looking choice — just confirm the UK or relevant National Annex being applied, since Eurocodes are deliberately adaptable by country.",
+          unsure: "This is worth pinning down early, not left implicit. Ask your structural engineer directly which code governs your drawings — BS 8110 and Eurocode 2 give different (though usually similar) results for the same element, and a design shouldn't mix requirements from both on the same structure.",
         },
       },
     ],
   },
   {
     id: 3,
-
     name: "Site Preparation & Setting Out",
     weight: 5,
-    summary:
-      "The plot is cleared, levelled, and the building's exact footprint is marked on the ground using profile boards and string lines.",
+    summary: "The plot is cleared, levelled, and the building's exact footprint is marked on the ground using profile boards and string lines.",
     checklist: [
-      "Site cleared of vegetation, debris, and topsoil stripped",
-      "Site fenced and temporary water/power arranged",
-      "Profile boards erected at corners",
-      "Building lines and diagonals checked (equal diagonals = square corners)",
-      "Bench mark level established for excavation depth reference",
+      { text: "Site cleared of vegetation, debris, and topsoil stripped" },
+      { text: "Site fenced and temporary water/power arranged" },
+      { text: "Profile boards erected at corners" },
+      { text: "Building lines and diagonals checked (equal diagonals = square corners)" },
+      { text: "Bench mark level established for excavation depth reference" },
     ],
     errors: [
       "Skipping the diagonal check — a footprint that's a few centimetres off-square compounds into real wall and roofing problems.",
@@ -407,13 +337,13 @@ const STAGES = [
     id: 4,
     name: "Foundation",
     weight: 15,
-    summary: null, // filled dynamically by soil decision
+    summary: null,
     checklist: [
-      "Excavation to the depth specified for the confirmed soil condition",
-      "Plain Cement Concrete (PCC) blinding layer laid before reinforcement",
-      "Reinforcement placed and inspected before pouring",
-      "Concrete poured in one continuous operation per section",
-      "Minimum 7-day moist curing before loading the foundation",
+      { text: "Excavation to the depth specified for the confirmed soil condition", linkedDecision: "soil" },
+      { text: "Plain Cement Concrete (PCC) blinding layer laid before reinforcement", linkedDecision: "mixScenario" },
+      { text: "Reinforcement placed and inspected before pouring" },
+      { text: "Concrete poured in one continuous operation per section" },
+      { text: "Minimum 7-day moist curing before loading the foundation" },
     ],
     errors: [
       "Pouring concrete before the blinding layer cures — this compromises the reinforcement cover.",
@@ -421,14 +351,8 @@ const STAGES = [
       "Using an ad-hoc mix ratio instead of the one specified in the structural drawing.",
     ],
     codeRefs: [
-      {
-        code: "BS 8110-1:1997 or Eurocode 2 (EN 1992-1-1)",
-        note: "Governs concrete grade and mix design. The ratios given below are general guidance — the grade stated on your structural drawing always takes precedence.",
-      },
-      {
-        code: "BS 8004 or Eurocode 7 (EN 1997)",
-        note: "The dedicated foundation/geotechnical design codes — this is what your soil test result and foundation type (strip, raft, or pile) should ultimately be checked against by a geotechnical or structural engineer, not general guidance like this app.",
-      },
+      { code: "BS 8110-1:1997 or Eurocode 2 (EN 1992-1-1)", note: "Governs concrete grade and mix design. The ratios given below are general guidance — the grade stated on your structural drawing always takes precedence." },
+      { code: "BS 8004 or Eurocode 7 (EN 1997)", note: "The dedicated foundation/geotechnical design codes — this is what your soil test result and foundation type (strip, raft, or pile) should ultimately be checked against by a geotechnical or structural engineer, not general guidance like this app." },
     ],
     decisionPoints: [
       {
@@ -440,12 +364,9 @@ const STAGES = [
           { value: "reinforcedFooting", label: "Reinforced footing / raft" },
         ],
         detail: {
-          blinding:
-            "Blinding (PCC) is a thin, non-structural levelling layer poured directly on excavated ground before reinforcement — typically mixed 1:4:8 or 1:3:6 (cement:sand:granite), about 50–75mm thick. Its job is to give a clean, level, non-porous surface so reinforcement bars sit at the correct cover height instead of resting in mud.",
-          massFooting:
-            "A mass concrete strip footing (no reinforcement, used on firm soils per your Stage 1 soil result) is typically mixed 1:3:6 or 1:2:4 (cement:sand:granite) where a stronger mix is specified. Confirm the exact ratio against your structural drawing rather than defaulting to a rule of thumb — footing size and soil bearing capacity determine what's actually required.",
-          reinforcedFooting:
-            "A reinforced footing or raft (typically required on clayey/expansive or waterlogged soils per your Stage 1 result) is normally mixed 1:2:4 (cement:sand:granite) or to the specific grade stated on your structural drawing. Water-cement ratio matters as much as the volumetric ratio here — too much water weakens the cured strength even if the mix looks 'right'. If your soil test flagged waterlogged or sulfate-bearing ground, ask your engineer whether sulfate-resisting cement is needed.",
+          blinding: "Blinding (PCC) is a thin, non-structural levelling layer poured directly on excavated ground before reinforcement — typically mixed 1:4:8 or 1:3:6 (cement:sand:granite), about 50–75mm thick. Its job is to give a clean, level, non-porous surface so reinforcement bars sit at the correct cover height instead of resting in mud.",
+          massFooting: "A mass concrete strip footing (no reinforcement, used on firm soils per your Stage 1 soil result) is typically mixed 1:3:6 or 1:2:4 (cement:sand:granite) where a stronger mix is specified. Confirm the exact ratio against your structural drawing rather than defaulting to a rule of thumb — footing size and soil bearing capacity determine what's actually required.",
+          reinforcedFooting: "A reinforced footing or raft (typically required on clayey/expansive or waterlogged soils per your Stage 1 result) is normally mixed 1:2:4 (cement:sand:granite) or to the specific grade stated on your structural drawing. Water-cement ratio matters as much as the volumetric ratio here — too much water weakens the cured strength even if the mix looks 'right'. If your soil test flagged waterlogged or sulfate-bearing ground, ask your engineer whether sulfate-resisting cement is needed.",
         },
       },
     ],
@@ -463,27 +384,20 @@ const STAGES = [
     id: 5,
     name: "Substructure — DPC & Plinth",
     weight: 8,
-    summary:
-      "The damp-proof course and plinth beam form the transition between foundation and superstructure, and are the building's main defence against rising damp.",
+    summary: "The damp-proof course and plinth beam form the transition between foundation and superstructure, and are the building's main defence against rising damp.",
     checklist: [
-      "Damp-proof course (DPC) laid across the full wall width",
-      "Plinth beam cast and cured",
-      "Backfilling done in compacted layers, not dumped in bulk",
-      "Plinth level checked against the bench mark before wall-up begins",
+      { text: "Damp-proof course (DPC) laid across the full wall width" },
+      { text: "Plinth beam cast and cured" },
+      { text: "Backfilling done in compacted layers, not dumped in bulk" },
+      { text: "Plinth level checked against the bench mark before wall-up begins" },
     ],
     errors: [
       "Skipping the DPC to save cost — this is one of the most common causes of damp walls years later.",
       "Backfilling in one bulk layer, leaving air pockets that settle unevenly under floor slabs.",
     ],
     codeRefs: [
-      {
-        code: "Nigerian National Building Code (NBC) 2006",
-        note: "Sets minimum damp-proofing requirements for Nigerian construction.",
-      },
-      {
-        code: "BS 8215 (Code of practice for design and installation of damp-proof courses)",
-        note: "A workmanship-focused reference for DPC detailing, commonly cited alongside the NBC. Plinth beam sizing itself follows the same structural code (BS 8110 or Eurocode 2) as the rest of the frame.",
-      },
+      { code: "Nigerian National Building Code (NBC) 2006", note: "Sets minimum damp-proofing requirements for Nigerian construction." },
+      { code: "BS 8215 (Code of practice for design and installation of damp-proof courses)", note: "A workmanship-focused reference for DPC detailing, commonly cited alongside the NBC. Plinth beam sizing itself follows the same structural code (BS 8110 or Eurocode 2) as the rest of the frame." },
     ],
     deepDive: {
       title: "DPC and plinth beam, in detail",
@@ -501,28 +415,21 @@ const STAGES = [
     id: 6,
     name: "Superstructure — Frame & Walls",
     weight: 30,
-    summary:
-      "Columns, beams, and slabs are cast to form the building's skeleton, then walls are built up between them to lintel and roof level.",
+    summary: "Columns, beams, and slabs are cast to form the building's skeleton, then walls are built up between them to lintel and roof level.",
     checklist: [
-      "Columns cast plumb and cured before loading",
-      "Beams and slabs cast per structural drawing at each floor level",
-      "Block/brick walls raised with correct mortar mix",
-      "Lintels cast over every door and window opening before wall continues above",
-      "Curing maintained on all fresh concrete elements",
+      { text: "Columns cast plumb and cured before loading" },
+      { text: "Beams and slabs cast per structural drawing at each floor level", linkedDecision: "floors" },
+      { text: "Block/brick walls raised with correct mortar mix" },
+      { text: "Lintels cast over every door and window opening before wall continues above" },
+      { text: "Curing maintained on all fresh concrete elements" },
     ],
     errors: [
       "Continuing block work above an opening without casting the lintel first.",
       "Rushing curing time on columns before the next floor's load is applied.",
     ],
     codeRefs: [
-      {
-        code: "BS 8110-1:1997 or Eurocode 2 (EN 1992-1-1)",
-        note: "Governs column, beam, and slab sizing and reinforcement — confirm which one applies from your Stage 2 decision.",
-      },
-      {
-        code: "BS 6399-2 or Eurocode 1 / EN 1991-1-4 (wind actions)",
-        note: "Governs wind loading. This is exactly why 3+ storey buildings need full engineering design rather than rule-of-thumb sizing — wind load on a tall building's face becomes a real structural input, not a rounding error.",
-      },
+      { code: "BS 8110-1:1997 or Eurocode 2 (EN 1992-1-1)", note: "Governs column, beam, and slab sizing and reinforcement — confirm which one applies from your Stage 2 decision." },
+      { code: "BS 6399-2 or Eurocode 1 / EN 1991-1-4 (wind actions)", note: "Governs wind loading. This is exactly why 3+ storey buildings need full engineering design rather than rule-of-thumb sizing — wind load on a tall building's face becomes a real structural input, not a rounding error." },
     ],
     decisionPoints: [
       {
@@ -545,22 +452,19 @@ const STAGES = [
     id: 7,
     name: "Roofing",
     weight: 12,
-    summary: null, // filled dynamically by budget decision
+    summary: null,
     checklist: [
-      "Roof structure (trusses/rafters) erected and braced",
-      "Roof pitch confirmed as suitable for the chosen covering material",
-      "Roofing sheets/tiles fixed with correct fasteners and overlap",
-      "Fascia boards and gutters installed with a fall toward downpipes",
+      { text: "Roof structure (trusses/rafters) erected and braced" },
+      { text: "Roof pitch confirmed as suitable for the chosen covering material" },
+      { text: "Roofing sheets/tiles fixed with correct fasteners and overlap" },
+      { text: "Fascia boards and gutters installed with a fall toward downpipes" },
     ],
     errors: [
       "Choosing a low pitch with a material that needs a steeper slope, causing leaks in the rains.",
       "Skipping truss bracing — trusses can rack sideways under wind load without it.",
     ],
     codeRefs: [
-      {
-        code: "BS 6399-2 or Eurocode 1 / EN 1991-1-4 (wind actions)",
-        note: "Governs wind-uplift design for roof structures and their fixings — this is the technical basis behind truss bracing requirements and fastener spacing, not just manufacturer preference.",
-      },
+      { code: "BS 6399-2 or Eurocode 1 / EN 1991-1-4 (wind actions)", note: "Governs wind-uplift design for roof structures and their fixings — this is the technical basis behind truss bracing requirements and fastener spacing, not just manufacturer preference." },
     ],
     deepDive: {
       title: "Roof structure & trusses, explained",
@@ -577,14 +481,13 @@ const STAGES = [
     id: 8,
     name: "MEP Rough-in & Finishing",
     weight: 22,
-    summary:
-      "Electrical and plumbing lines are installed, then the building is plastered, floored, and fitted out.",
+    summary: "Electrical and plumbing lines are installed, then the building is plastered, floored, and fitted out.",
     checklist: [
-      "Electrical conduits and plumbing pipes sleeved before plastering",
-      "Plastering done to a true, plumb finish",
-      "Screeding and floor finishes (tiles/terrazzo/etc.) laid",
-      "Doors, windows, and ironmongery fitted",
-      "Painting and final fixtures installed",
+      { text: "Electrical conduits and plumbing pipes sleeved before plastering" },
+      { text: "Plastering done to a true, plumb finish" },
+      { text: "Screeding and floor finishes (tiles/terrazzo/etc.) laid" },
+      { text: "Doors, windows, and ironmongery fitted" },
+      { text: "Painting and final fixtures installed" },
     ],
     errors: [
       "Chasing walls for wiring after plastering is complete, instead of sleeving conduits beforehand.",
@@ -606,13 +509,12 @@ const STAGES = [
     id: 9,
     name: "Inspection & Handover",
     weight: 2,
-    summary:
-      "The building is checked against drawings and code, defects are logged and closed out, and documentation is handed to the owner.",
+    summary: "The building is checked against drawings and code, defects are logged and closed out, and documentation is handed to the owner.",
     checklist: [
-      "Final structural and safety inspection carried out",
-      "Snag list (defects) compiled and closed out",
-      "Certificate of completion / occupancy obtained where required",
-      "As-built drawings and warranty documents handed over",
+      { text: "Final structural and safety inspection carried out" },
+      { text: "Snag list (defects) compiled and closed out" },
+      { text: "Certificate of completion / occupancy obtained where required" },
+      { text: "As-built drawings and warranty documents handed over" },
     ],
     errors: [
       "Skipping the formal inspection because the building 'looks done'.",
@@ -633,116 +535,43 @@ const STAGES = [
 ];
 
 const SOIL_TEXT = {
-  sandy:
-    "Sandy / firm loamy soil confirmed — a strip or pad footing is typically adequate. Excavate to the depth specified in your structural drawing (commonly 1–1.5m, but let the engineer's numbers govern).",
-  clay:
-    "Clayey / expansive soil confirmed — expansive clays shrink and swell with moisture, so a raft foundation or a deeper strip footing with extra reinforcement is usually specified. Do not use a standard strip-footing depth here without engineer sign-off.",
-  waterlogged:
-    "Waterlogged / weak soil confirmed — this soil condition generally requires a pile foundation or significant ground improvement. This is not a stage to economise on; get a geotechnical engineer directly involved.",
-  default:
-    "Foundation type depends on your soil test result. Go back to Stage 1 and record the result to see the specific guidance here.",
+  sandy: "Sandy / firm loamy soil confirmed — a strip or pad footing is typically adequate. Excavate to the depth specified in your structural drawing (commonly 1–1.5m, but let the engineer's numbers govern).",
+  clay: "Clayey / expansive soil confirmed — expansive clays shrink and swell with moisture, so a raft foundation or a deeper strip footing with extra reinforcement is usually specified. Do not use a standard strip-footing depth here without engineer sign-off.",
+  waterlogged: "Waterlogged / weak soil confirmed — this soil condition generally requires a pile foundation or significant ground improvement. This is not a stage to economise on; get a geotechnical engineer directly involved.",
+  default: "Foundation type depends on your soil test result. Go back to Stage 1 and record the result to see the specific guidance here.",
 };
 
 const ROOF_TEXT = {
-  economy:
-    "Economy tier — long-span aluminium roofing sheets on timber trusses is the common cost-effective choice. Keep pitch and fastening exactly to the sheet manufacturer's spec; skimping here is a frequent leak cause.",
-  standard:
-    "Standard tier — aluminium or step-tile sheeting on timber or light steel trusses, with proper fascia and gutter detailing, is typical.",
-  premium:
-    "Premium tier — clay/concrete tiles or Decra-type stone-coated sheets on engineered trusses are common, with attention to insulation and ceiling detailing.",
-  default:
-    "Roofing material recommendation depends on your budget tier. Set it in Stage 2 to see specific guidance here.",
+  economy: "Economy tier — long-span aluminium roofing sheets on timber trusses is the common cost-effective choice. Keep pitch and fastening exactly to the sheet manufacturer's spec; skimping here is a frequent leak cause.",
+  standard: "Standard tier — aluminium or step-tile sheeting on timber or light steel trusses, with proper fascia and gutter detailing, is typical.",
+  premium: "Premium tier — clay/concrete tiles or Decra-type stone-coated sheets on engineered trusses are common, with attention to insulation and ceiling detailing.",
+  default: "Roofing material recommendation depends on your budget tier. Set it in Stage 2 to see specific guidance here.",
 };
 
-// Human-readable labels for the Stage 9 project summary, keyed the
-// same way the raw decision values are stored in state.
 const SUMMARY_LABELS = {
-  soil: {
-    sandy: "Sandy / firm loamy",
-    clay: "Clayey / expansive",
-    waterlogged: "Waterlogged / weak / peaty",
-  },
-  landSize: {
-    half: "Half plot (~300–350 sqm)",
-    full: "Full plot (~600–650 sqm)",
-    large: "Multiple plots / 900+ sqm",
-  },
-  budget: {
-    economy: "Economy",
-    standard: "Standard",
-    premium: "Premium",
-  },
-  drawings: {
-    need: "Guided through producing drawings",
-    have: "Uploaded own drawings",
-  },
-  codeStandard: {
-    bs8110: "BS 8110 (legacy British Standard)",
-    eurocode2: "Eurocode 2 (EN 1992)",
-    unsure: "Not yet confirmed with engineer",
-  },
-  mixScenario: {
-    blinding: "Blinding / PCC",
-    massFooting: "Mass concrete strip footing",
-    reinforcedFooting: "Reinforced footing / raft",
-  },
-  floors: {
-    "1": "Single storey",
-    "2": "Two storeys",
-    "3+": "Three or more storeys",
-  },
+  soil: { sandy: "Sandy / firm loamy", clay: "Clayey / expansive", waterlogged: "Waterlogged / weak / peaty" },
+  landSize: { half: "Half plot (~300–350 sqm)", full: "Full plot (~600–650 sqm)", large: "Multiple plots / 900+ sqm" },
+  budget: { economy: "Economy", standard: "Standard", premium: "Premium" },
+  drawings: { need: "Guided through producing drawings", have: "Uploaded own drawings" },
+  codeStandard: { bs8110: "BS 8110 (legacy British Standard)", eurocode2: "Eurocode 2 (EN 1992)", unsure: "Not yet confirmed with engineer" },
+  mixScenario: { blinding: "Blinding / PCC", massFooting: "Mass concrete strip footing", reinforcedFooting: "Reinforced footing / raft" },
+  floors: { "1": "Single storey", "2": "Two storeys", "3+": "Three or more storeys" },
 };
 
-// Terms of Service and Privacy Policy content. Written as honest,
-// plain-language boilerplate — NOT reviewed by a lawyer. Given this
-// app gives real construction/structural guidance and will eventually
-// take payment, get an actual legal review before relying on this for
-// anything beyond an early-stage placeholder.
 const TERMS_CONTENT = {
   title: "Terms of Service",
   updated: "Last updated: August 2026",
   sections: [
-    {
-      heading: "What this app is",
-      body: [
-        "Build Sequence is a general educational and organisational guide to residential construction, presented in stages with checklists, decision-based guidance, and common-error notes.",
-      ],
-    },
-    {
-      heading: "Not professional advice",
-      body: [
-        "Nothing in this app is architectural, structural engineering, surveying, or legal advice, and using it does not create a professional relationship of any kind. Every real design and construction decision — foundation type, structural sizing, drawings, approvals, and anything affecting safety or legal compliance — must be made by a licensed architect, structural engineer, surveyor, or other appropriate professional for your specific site and project.",
-        "The schematic illustration shown after Stage 9 is a visual recap of the choices you made in the app, not a real elevation, section, or 3D model, and must never be used as one.",
-      ],
-    },
-    {
-      heading: "No liability",
-      body: [
-        "This app is provided 'as is', without warranty of any kind. To the fullest extent permitted by law, the app's creator is not liable for any loss, damage, injury, or cost arising from use of this app, including reliance on any guidance, checklist, or illustration it contains.",
-      ],
-    },
-    {
-      heading: "Accounts",
-      body: [
-        "You're responsible for the accuracy of the information you provide when creating an account, and for keeping your password confidential.",
-      ],
-    },
-    {
-      heading: "Paid access",
-      body: [
-        "Some stages may require payment to unlock, either individually or as a bundle, as described in the app. Pricing and payment terms will be confirmed at the time payment is introduced.",
-      ],
-    },
-    {
-      heading: "Changes",
-      body: [
-        "These terms may be updated as the app develops. Continued use after a change means you accept the updated terms.",
-      ],
-    },
-    {
-      heading: "Contact",
-      body: ["Questions about these terms: [insert contact email]."],
-    },
+    { heading: "What this app is", body: ["Build Sequence is a general educational and organisational guide to residential construction, presented in stages with checklists, decision-based guidance, and common-error notes."] },
+    { heading: "Not professional advice", body: [
+      "Nothing in this app is architectural, structural engineering, surveying, or legal advice, and using it does not create a professional relationship of any kind. Every real design and construction decision — foundation type, structural sizing, drawings, approvals, and anything affecting safety or legal compliance — must be made by a licensed architect, structural engineer, surveyor, or other appropriate professional for your specific site and project.",
+      "The schematic illustration shown after Stage 9 is a visual recap of the choices you made in the app, not a real elevation, section, or 3D model, and must never be used as one.",
+    ]},
+    { heading: "No liability", body: ["This app is provided 'as is', without warranty of any kind. To the fullest extent permitted by law, the app's creator is not liable for any loss, damage, injury, or cost arising from use of this app, including reliance on any guidance, checklist, or illustration it contains."] },
+    { heading: "Accounts", body: ["You're responsible for the accuracy of the information you provide when creating an account, and for keeping your password confidential."] },
+    { heading: "Paid access", body: ["Some stages may require payment to unlock, either individually or as a bundle, as described in the app. Pricing and payment terms will be confirmed at the time payment is introduced."] },
+    { heading: "Changes", body: ["These terms may be updated as the app develops. Continued use after a change means you accept the updated terms."] },
+    { heading: "Contact", body: ["Questions about these terms: [insert contact email]."] },
   ],
 };
 
@@ -750,63 +579,30 @@ const PRIVACY_CONTENT = {
   title: "Privacy Policy",
   updated: "Last updated: August 2026",
   sections: [
-    {
-      heading: "What's collected",
-      body: [
-        "Account email and password (handled by Supabase Authentication — your password is never visible to or stored directly by this app).",
-        "Waitlist email addresses, if you submit one on a locked stage.",
-        "Files you choose to upload on Stage 2 (architectural/structural drawings), stored privately and restricted to your own account.",
-        "Your project decisions (soil type, budget, floor count, etc.) and checklist progress are kept only in your browser's memory for the current session and are not sent to or stored on any server.",
-      ],
-    },
-    {
-      heading: "What's not collected",
-      body: [
-        "No advertising trackers, no third-party analytics pixels, and no browser storage (cookies/localStorage) are used by this app at this time.",
-      ],
-    },
-    {
-      heading: "How data is used",
-      body: [
-        "Account and payment-status data is used solely to control access to paid stages. Waitlist emails are used solely to notify you when full access opens. Uploaded drawings are stored solely for your own reference within your account.",
-      ],
-    },
-    {
-      heading: "Third parties",
-      body: [
-        "Account data, uploaded files, and payment status are stored and processed by Supabase, acting as a data processor for this app. No data is sold or shared with advertisers.",
-      ],
-    },
-    {
-      heading: "Your rights",
-      body: [
-        "You can request deletion of your account and associated data at any time by contacting [insert contact email].",
-      ],
-    },
-    {
-      heading: "Changes",
-      body: [
-        "This policy may be updated as the app develops. Material changes will be reflected here with an updated date.",
-      ],
-    },
-    {
-      heading: "Contact",
-      body: ["Questions about this policy: [insert contact email]."],
-    },
+    { heading: "What's collected", body: [
+      "Account email and password (handled by Supabase Authentication — your password is never visible to or stored directly by this app).",
+      "Waitlist email addresses, if you submit one on a locked stage.",
+      "Files you choose to upload on Stage 2 (architectural/structural drawings), stored privately and restricted to your own account.",
+      "Your project decisions (soil type, budget, floor count, etc.) and checklist progress are kept only in your browser's memory for the current session and are not sent to or stored on any server.",
+    ]},
+    { heading: "What's not collected", body: ["No advertising trackers, no third-party analytics pixels, and no browser storage (cookies/localStorage) are used by this app at this time."] },
+    { heading: "How data is used", body: ["Account and payment-status data is used solely to control access to paid stages. Waitlist emails are used solely to notify you when full access opens. Uploaded drawings are stored solely for your own reference within your account."] },
+    { heading: "Third parties", body: ["Account data, uploaded files, and payment status are stored and processed by Supabase, acting as a data processor for this app. No data is sold or shared with advertisers."] },
+    { heading: "Your rights", body: ["You can request deletion of your account and associated data at any time by contacting [insert contact email]."] },
+    { heading: "Changes", body: ["This policy may be updated as the app develops. Material changes will be reflected here with an updated date."] },
+    { heading: "Contact", body: ["Questions about this policy: [insert contact email]."] },
   ],
 };
 
 const FREE_LIMIT = 3;
 
 export default function App() {
-  /* ---------- Core state ---------- */
-  const [page, setPage] = useState("landing"); // "landing" | "overview" | "detail" | "summary" | "terms" | "privacy"
+  const [page, setPage] = useState("landing");
   const [active, setActive] = useState(1);
   const [projectName, setProjectName] = useState("UNTITLED PROJECT");
   const [decisions, setDecisions] = useState({});
   const [checks, setChecks] = useState({});
 
-  /* ---------- Waitlist (for locked stages) ---------- */
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
   const [waitlistSubmitting, setWaitlistSubmitting] = useState(false);
@@ -816,9 +612,7 @@ export default function App() {
     if (!waitlistEmail.includes("@")) return;
     setWaitlistSubmitting(true);
     setWaitlistError("");
-    const { error } = await supabase
-      .from("waitlist")
-      .insert({ email: waitlistEmail });
+    const { error } = await supabase.from("waitlist").insert({ email: waitlistEmail });
     setWaitlistSubmitting(false);
     if (error) {
       setWaitlistError("Something went wrong — try again in a moment.");
@@ -827,10 +621,9 @@ export default function App() {
     setWaitlistSubmitted(true);
   };
 
-  /* ---------- Auth: session, profile (is_paid / unlocked_stages) ---------- */
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [authMode, setAuthMode] = useState("signin"); // "signin" | "signup"
+  const [authMode, setAuthMode] = useState("signin");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
@@ -839,18 +632,12 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => setSession(newSession)
-    );
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => setSession(newSession));
     return () => listener.subscription.unsubscribe();
   }, []);
 
   const refetchProfile = async (userId) => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, email, is_paid, unlocked_stages")
-      .eq("id", userId)
-      .single();
+    const { data } = await supabase.from("profiles").select("id, email, is_paid, unlocked_stages").eq("id", userId).single();
     setProfile(data || null);
   };
 
@@ -862,24 +649,19 @@ export default function App() {
     refetchProfile(session.user.id);
   }, [session]);
 
-  // The moment a session appears while we're still on the landing
-  // page (e.g. right after sign-in), move to the stage overview.
   useEffect(() => {
     if (session && page === "landing") setPage("overview");
   }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [page, active]);
+
   const isPaid = !!profile?.is_paid;
   const unlockedStages = profile?.unlocked_stages || [];
-  const isUnlocked = (stageId) =>
-    stageId <= FREE_LIMIT || isPaid || unlockedStages.includes(stageId);
+  const isUnlocked = (stageId) => stageId <= FREE_LIMIT || isPaid || unlockedStages.includes(stageId);
 
-  /* ---------- Payment (Paystack) ----------
-   * The popup only ever tells the frontend "the user completed
-   * checkout" — it does NOT grant access by itself. Access is only
-   * granted after /api/verify-payment confirms the payment with
-   * Paystack server-side and updates Supabase. This is what stops
-   * someone from faking a success in their browser's dev tools. */
-  const [paying, setPaying] = useState(null); // null | "bundle" | number (stageId)
+  const [paying, setPaying] = useState(null);
   const [payError, setPayError] = useState("");
 
   const handlePayment = (purchaseType, stageId) => {
@@ -896,40 +678,27 @@ export default function App() {
     const popup = window.PaystackPop.setup({
       key: PAYSTACK_PUBLIC_KEY,
       email: session.user.email,
-      amount: amountNaira * 100, // Paystack expects kobo
+      amount: amountNaira * 100,
       currency: "NGN",
       metadata: { userId: session.user.id, purchaseType, stageId },
       callback: (response) => {
         fetch("/api/verify-payment", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            reference: response.reference,
-            userId: session.user.id,
-            purchaseType,
-            stageId,
-          }),
+          body: JSON.stringify({ reference: response.reference, userId: session.user.id, purchaseType, stageId }),
         })
           .then((r) => r.json())
           .then((result) => {
             setPaying(null);
             if (!result.success) {
-              setPayError(
-                "Payment went through, but we couldn't confirm it automatically. Contact support with reference " +
-                  response.reference +
-                  "."
-              );
+              setPayError("Payment went through, but we couldn't confirm it automatically. Contact support with reference " + response.reference + ".");
               return;
             }
             refetchProfile(session.user.id);
           })
           .catch(() => {
             setPaying(null);
-            setPayError(
-              "Payment went through, but we couldn't confirm it automatically. Contact support with reference " +
-                response.reference +
-                "."
-            );
+            setPayError("Payment went through, but we couldn't confirm it automatically. Contact support with reference " + response.reference + ".");
           });
       },
       onClose: () => {
@@ -948,40 +717,26 @@ export default function App() {
     }
     setAuthLoading(true);
     if (authMode === "signup") {
-      const { data, error } = await supabase.auth.signUp({
-        email: authEmail,
-        password: authPassword,
-      });
+      const { data, error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
       if (error) {
         setAuthLoading(false);
         setAuthError(error.message);
         return;
       }
       if (data.user) {
-        await supabase
-          .from("profiles")
-          .upsert({ id: data.user.id, email: authEmail });
+        await supabase.from("profiles").upsert({ id: data.user.id, email: authEmail });
       }
       if (!data.session) {
         setAuthLoading(false);
-        setAuthInfo(
-          "Account created. If sign-in doesn't work right away, email confirmation may still be required — check your inbox, or try again shortly."
-        );
+        setAuthInfo("Account created. If sign-in doesn't work right away, email confirmation may still be required — check your inbox, or try again shortly.");
         setAuthPassword("");
         return;
       }
     } else {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: authEmail,
-        password: authPassword,
-      });
+      const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
       if (error) {
         setAuthLoading(false);
-        setAuthError(
-          error.message.toLowerCase().includes("confirm")
-            ? "This account's email hasn't been confirmed yet. Check your inbox for a confirmation link, or check back shortly."
-            : error.message
-        );
+        setAuthError(error.message.toLowerCase().includes("confirm") ? "This account's email hasn't been confirmed yet. Check your inbox for a confirmation link, or check back shortly." : error.message);
         return;
       }
     }
@@ -995,10 +750,10 @@ export default function App() {
     setPage("landing");
   };
 
-  /* ---------- Progress / content helpers ---------- */
   const stage = STAGES.find((s) => s.id === active);
 
-  const toggleCheck = (stageId, idx) => {
+  const toggleCheck = (stageId, idx, isLinked) => {
+    if (isLinked) return;
     const key = `${stageId}-${idx}`;
     setChecks((c) => ({ ...c, [key]: !c[key] }));
   };
@@ -1006,20 +761,23 @@ export default function App() {
   const stageProgress = (s) => {
     const total = s.checklist.length;
     let done = 0;
-    for (let i = 0; i < total; i++) if (checks[`${s.id}-${i}`]) done++;
+    for (let i = 0; i < total; i++) {
+      const item = s.checklist[i];
+      const isDone = item.linkedDecision ? !!decisions[item.linkedDecision] : !!checks[`${s.id}-${i}`];
+      if (isDone) done++;
+    }
     return { done, total };
   };
 
   const overallProgress = useMemo(() => {
-    let done = 0,
-      total = 0;
+    let done = 0, total = 0;
     STAGES.forEach((s) => {
       const p = stageProgress(s);
       done += p.done;
       total += p.total;
     });
     return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
-  }, [checks]);
+  }, [checks, decisions]);
 
   const dynamicSummary = (s) => {
     if (s.id === 4) return SOIL_TEXT[decisions.soil] || SOIL_TEXT.default;
@@ -1027,16 +785,8 @@ export default function App() {
     return s.summary;
   };
 
-  // BOQ guidance is deliberately qualitative, not a fabricated cost
-  // figure — material and labour prices move too much, and vary too
-  // much by state, for a fixed number here to be honest or useful.
-  // What's stable is *how* land size and budget tier each change the
-  // BOQ: size scales quantities, budget tier changes specification.
   const boqGuidance = () => {
-    const landLabel =
-      { half: "a half plot", full: "a full plot", large: "multiple plots / a large site" }[
-        decisions.landSize
-      ];
+    const landLabel = { half: "a half plot", full: "a full plot", large: "multiple plots / a large site" }[decisions.landSize];
     const budgetLabel = decisions.budget;
     if (!landLabel || !budgetLabel) return null;
     return `Your plot size (${landLabel}) mainly drives the *quantities* in your BOQ — footprint, wall area, roof area, and so on scale with it, so a quantity surveyor should size every line item against your actual survey dimensions, not a generic per-square-metre guess. Your budget tier (${budgetLabel}) mainly drives *specification* within those same line items — which grade of block, which finish, which roofing material — rather than changing what's on the list. Treat these as two separate levers: get the quantities right from the drawings first, then apply your budget tier to select the specification for each item. A registered quantity surveyor is worth engaging here — local material prices move too often for any fixed figure to stay accurate.`;
@@ -1047,14 +797,8 @@ export default function App() {
     setPage("detail");
   };
 
-  /* AuthPanel and AccountBar are defined outside App() (near the
-     bottom of this file) so their component identity stays stable
-     across renders — see the note down there for why that matters. */
-
-
   /* ================= RENDER ================= */
 
-  // ---- Legal pages: reachable regardless of sign-in state ----
   if (page === "terms") {
     return <LegalPage content={TERMS_CONTENT} onBack={() => setPage(session ? "overview" : "landing")} />;
   }
@@ -1062,145 +806,52 @@ export default function App() {
     return <LegalPage content={PRIVACY_CONTENT} onBack={() => setPage(session ? "overview" : "landing")} />;
   }
 
-  // ---- Landing page (no session) ----
   if (!session) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: C.bg,
-          backgroundImage: BG_WASH,
-          fontFamily: FONT,
-          color: C.text,
-          position: "relative",
-        }}
-      >
+      <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text, position: "relative" }}>
         <LandingSketches />
-        <header
-          style={{
-            borderBottom: `1px solid ${C.border}`,
-            padding: "18px 24px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            background: "rgba(255,255,255,0.85)",
-            backdropFilter: "blur(4px)",
-            position: "relative",
-            zIndex: 1,
-          }}
-        >
+        <header style={{ borderBottom: `1px solid ${C.border}`, padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.85)", backdropFilter: "blur(4px)", position: "relative", zIndex: 1 }}>
           <div style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
             <IconBlueprintRoll size={22} color={C.accent} />
             Build Sequence
           </div>
-          <div style={{ fontSize: 12.5, color: C.textDim, letterSpacing: "0.06em" }}>
-            GROUND UP — FOUNDATION TO FINISH
-          </div>
+          <div style={{ fontSize: 12.5, color: C.textDim, letterSpacing: "0.06em" }}>GROUND UP — FOUNDATION TO FINISH</div>
         </header>
 
         <main style={{ maxWidth: 900, margin: "0 auto", padding: "48px 24px 80px", position: "relative", zIndex: 1 }}>
           <h1 style={{ fontSize: 34, lineHeight: 1.25, marginBottom: 14, fontWeight: 700 }}>
-            A construction guide that walks with you from cleared land to
-            handover — one decision at a time.
+            A construction guide that walks with you from cleared land to handover — one decision at a time.
           </h1>
           <p style={{ fontSize: 17, color: C.textDim, lineHeight: 1.6, maxWidth: 640, marginBottom: 32 }}>
-            Nine stages, real site checklists, and guidance that actually
-            changes based on your soil test, your budget, and your floor
-            count — not a generic list of steps copied from a textbook.
+            Nine stages, real site checklists, and guidance that actually changes based on your soil test, your budget, and your floor count — not a generic list of steps copied from a textbook.
           </p>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: 16,
-              marginBottom: 44,
-            }}
-          >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 44 }}>
             {[
-              {
-                title: "Decision-driven",
-                body: "Your soil type changes the foundation guidance. Your budget changes the roofing guidance. Your floor count changes structural guidance.",
-                Icon: IconSetSquare,
-                iconColor: C.accent,
-                bg: C.accentSoft,
-              },
-              {
-                title: "Site checklists",
-                body: "Every stage ships with a practical, tickable checklist — not just theory.",
-                Icon: IconClipboard,
-                iconColor: C.yellow,
-                bg: C.yellowSoft,
-              },
-              {
-                title: "Common site errors",
-                body: "Each stage flags the mistakes that actually happen on real sites, not textbook trivia.",
-                Icon: IconHardHat,
-                iconColor: C.accent,
-                bg: C.accentSoft,
-              },
+              { title: "Decision-driven", body: "Your soil type changes the foundation guidance. Your budget changes the roofing guidance. Your floor count changes structural guidance.", Icon: IconSetSquare, iconColor: C.accent, bg: C.accentSoft },
+              { title: "Site checklists", body: "Every stage ships with a practical checklist — some items tick themselves based on the choices you've actually made.", Icon: IconClipboard, iconColor: C.yellow, bg: C.yellowSoft },
+              { title: "Common site errors", body: "Each stage flags the mistakes that actually happen on real sites, not textbook trivia.", Icon: IconHardHat, iconColor: C.accent, bg: C.accentSoft },
             ].map((f, i) => (
-              <div
-                key={i}
-                style={{
-                  background: C.panel,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 6,
-                  padding: 18,
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-                }}
-              >
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 8,
-                    background: f.bg,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginBottom: 12,
-                  }}
-                >
+              <div key={i} style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                <div style={{ width: 44, height: 44, borderRadius: 8, background: f.bg, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
                   <f.Icon size={26} color={f.iconColor} />
                 </div>
-                <div style={{ fontWeight: 700, marginBottom: 6, color: C.text }}>
-                  {f.title}
-                </div>
-                <div style={{ fontSize: 14, color: C.textDim, lineHeight: 1.5 }}>
-                  {f.body}
-                </div>
+                <div style={{ fontWeight: 700, marginBottom: 6, color: C.text }}>{f.title}</div>
+                <div style={{ fontSize: 14, color: C.textDim, lineHeight: 1.5 }}>{f.body}</div>
               </div>
             ))}
           </div>
 
-          <div
-            style={{
-              background: C.panel,
-              border: `1px solid ${C.border}`,
-              borderRadius: 8,
-              padding: 28,
-              boxShadow: "0 2px 10px rgba(0,0,0,0.05)",
-              maxWidth: 400,
-            }}
-          >
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
-              Get started
-            </div>
+          <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: 28, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", maxWidth: 400 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Get started</div>
             <div style={{ fontSize: 13.5, color: C.textDim, marginBottom: 18 }}>
-              Stages 1–{FREE_LIMIT} are free for everyone once you're signed
-              in. No card required to create an account.
+              Stages 1–{FREE_LIMIT} are free for everyone once you're signed in. No card required to create an account.
             </div>
             <AuthPanel
-              authMode={authMode}
-              setAuthMode={setAuthMode}
-              authEmail={authEmail}
-              setAuthEmail={setAuthEmail}
-              authPassword={authPassword}
-              setAuthPassword={setAuthPassword}
-              authLoading={authLoading}
-              authError={authError}
-              authInfo={authInfo}
+              authMode={authMode} setAuthMode={setAuthMode}
+              authEmail={authEmail} setAuthEmail={setAuthEmail}
+              authPassword={authPassword} setAuthPassword={setAuthPassword}
+              authLoading={authLoading} authError={authError} authInfo={authInfo}
               handleAuth={handleAuth}
             />
           </div>
@@ -1210,90 +861,41 @@ export default function App() {
     );
   }
 
-  // ---- Stage overview (signed in, page === "overview") ----
   if (page === "overview") {
     return (
       <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text }}>
-        <header
-          style={{
-            borderBottom: `1px solid ${C.border}`,
-            padding: "18px 24px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 10,
-            background: "rgba(255,255,255,0.85)",
-            backdropFilter: "blur(4px)",
-          }}
-        >
+        <header style={{ borderBottom: `1px solid ${C.border}`, padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, background: "rgba(255,255,255,0.85)", backdropFilter: "blur(4px)" }}>
           <div style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
             <IconBlueprintRoll size={22} color={C.accent} />
             Build Sequence
           </div>
-          <AccountBar session={session} isPaid={isPaid} unlockedStages={unlockedStages} handleSignOut={handleSignOut} />
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <ProgressBadge pct={overallProgress.pct} />
+            <AccountBar session={session} isPaid={isPaid} unlockedStages={unlockedStages} handleSignOut={handleSignOut} />
+          </div>
         </header>
 
         <main style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px 60px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
-            <h2 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Your stages</h2>
-            <span style={{ fontSize: 13.5, color: C.textDim }}>
-              Overall progress: <strong style={{ color: C.accent }}>{overallProgress.pct}%</strong>
-            </span>
-          </div>
+          <h2 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 6px" }}>Your stages</h2>
           <p style={{ color: C.textDim, marginBottom: 26, fontSize: 14.5 }}>
-            Select any stage to begin. Locked stages are shown so you can
-            see the full scope of the guide.
+            Select any stage to begin. Locked stages are shown so you can see the full scope of the guide.
           </p>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-              gap: 14,
-            }}
-          >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
             {STAGES.map((s) => {
               const p = stageProgress(s);
               const complete = p.done === p.total;
               const unlocked = isUnlocked(s.id);
               return (
-                <button
-                  key={s.id}
-                  onClick={() => goToStage(s.id)}
-                  style={{
-                    textAlign: "left",
-                    background: C.panel,
-                    border: `1px solid ${unlocked ? C.border : C.warn}`,
-                    borderRadius: 6,
-                    padding: 16,
-                    cursor: "pointer",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-                    fontFamily: FONT,
-                  }}
-                >
+                <button key={s.id} onClick={() => goToStage(s.id)} style={{ textAlign: "left", background: C.panel, border: `1px solid ${unlocked ? C.border : C.warn}`, borderRadius: 6, padding: 16, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", fontFamily: FONT }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                    <span style={{ fontSize: 12.5, color: C.textDim }}>
-                      Stage {String(s.id).padStart(2, "0")} · {s.weight}% of build
-                    </span>
-                    {!unlocked ? (
-                      <span style={{ color: C.warn, fontSize: 12.5 }}>Locked</span>
-                    ) : complete ? (
-                      <span style={{ color: C.ok, fontSize: 12.5 }}>Complete</span>
-                    ) : null}
+                    <span style={{ fontSize: 12.5, color: C.textDim }}>Stage {String(s.id).padStart(2, "0")} · {s.weight}% of build</span>
+                    {!unlocked ? <span style={{ color: C.warn, fontSize: 12.5 }}>Locked</span> : complete ? <span style={{ color: C.ok, fontSize: 12.5 }}>Complete</span> : null}
                   </div>
-                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, color: C.text }}>
-                    {s.name}
-                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, color: C.text }}>{s.name}</div>
                   {unlocked && (
                     <div style={{ width: "100%", height: 5, background: C.bgAlt, borderRadius: 3, overflow: "hidden" }}>
-                      <div
-                        style={{
-                          width: `${p.total ? Math.round((p.done / p.total) * 100) : 0}%`,
-                          height: "100%",
-                          background: complete ? C.ok : C.accent,
-                        }}
-                      />
+                      <div style={{ width: `${p.total ? Math.round((p.done / p.total) * 100) : 0}%`, height: "100%", background: complete ? C.ok : C.accent }} />
                     </div>
                   )}
                 </button>
@@ -1306,31 +908,12 @@ export default function App() {
     );
   }
 
-  // ---- Project summary (signed in, page === "summary") ----
-  // Reached from the button at the bottom of Stage 9. Kept as its own
-  // page rather than bundled into Stage 9's content, since it's a
-  // wrap-up of the whole project, not part of the inspection/handover
-  // stage itself.
   if (page === "summary") {
     return (
       <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text }}>
-        <header
-          style={{
-            borderBottom: `1px solid ${C.border}`,
-            padding: "18px 24px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 10,
-            background: "rgba(255,255,255,0.85)",
-            backdropFilter: "blur(4px)",
-          }}
-        >
+        <header style={{ borderBottom: `1px solid ${C.border}`, padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, background: "rgba(255,255,255,0.85)", backdropFilter: "blur(4px)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <button onClick={() => goToStage(9)} style={linkBtnStyle}>
-              ← Back to Stage 9
-            </button>
+            <button onClick={() => goToStage(9)} style={linkBtnStyle}>← Back to Stage 9</button>
             <div style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
               <IconBlueprintRoll size={22} color={C.accent} />
               Build Sequence
@@ -1340,68 +923,34 @@ export default function App() {
         </header>
 
         <main style={{ maxWidth: 640, margin: "0 auto", padding: "32px 24px 60px" }}>
-          <div style={{ fontSize: 12.5, color: C.textDim, letterSpacing: "0.06em", marginBottom: 6 }}>
-            PROJECT COMPLETE
-          </div>
+          <div style={{ fontSize: 12.5, color: C.textDim, letterSpacing: "0.06em", marginBottom: 6 }}>PROJECT COMPLETE</div>
           <h2 style={{ fontSize: 26, fontWeight: 700, margin: "0 0 6px" }}>Project Summary</h2>
           <p style={{ color: C.textDim, lineHeight: 1.6, fontSize: 15, marginBottom: 22 }}>
             A recap of every choice made across your nine stages, with a schematic illustration built from those choices.
           </p>
 
-          <div
-            style={{
-              border: `1px solid ${C.border}`,
-              background: C.panel,
-              borderRadius: 6,
-              padding: 20,
-              marginBottom: 22,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-            }}
-          >
+          <div style={{ border: `1px solid ${C.border}`, background: C.panel, borderRadius: 6, padding: 20, marginBottom: 22, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
             <SummaryElevation decisions={decisions} />
-
             <div style={{ marginTop: 18 }}>
               {Object.keys(SUMMARY_LABELS).map((key) => {
                 const rawValue = decisions[key];
                 const label = rawValue ? SUMMARY_LABELS[key][rawValue] : null;
-                const fieldName =
-                  { soil: "Soil condition", landSize: "Land size", budget: "Budget tier",
-                    drawings: "Drawings", codeStandard: "Design code", mixScenario: "Foundation mix scenario", floors: "Floor count" }[key];
+                const fieldName = { soil: "Soil condition", landSize: "Land size", budget: "Budget tier", drawings: "Drawings", codeStandard: "Design code", mixScenario: "Foundation mix scenario", floors: "Floor count" }[key];
                 return (
-                  <div
-                    key={key}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      padding: "8px 0",
-                      borderBottom: `1px solid ${C.border}`,
-                      fontSize: 14,
-                    }}
-                  >
+                  <div key={key} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 14 }}>
                     <span style={{ color: C.textDim }}>{fieldName}</span>
-                    <span style={{ color: label ? C.text : C.textDim, fontStyle: label ? "normal" : "italic" }}>
-                      {label || "Not yet chosen"}
-                    </span>
+                    <span style={{ color: label ? C.text : C.textDim, fontStyle: label ? "normal" : "italic" }}>{label || "Not yet chosen"}</span>
                   </div>
                 );
               })}
             </div>
-
             <p style={{ fontSize: 12.5, color: C.textDim, lineHeight: 1.5, marginTop: 16, marginBottom: 0 }}>
-              This is a schematic recap for orientation only — a simple
-              illustration built from the choices you made, not a real
-              elevation, section, or 3D model. Actual elevations, sections,
-              and 3D representation must come from your architect's and
-              structural engineer's real drawings (Stage 2) — those are
-              based on your actual site and design, not a handful of
-              multiple-choice answers.
+              This is a schematic recap for orientation only — a simple illustration built from the choices you made, not a real elevation, section, or 3D model. Actual elevations, sections, and 3D representation must come from your architect's and structural engineer's real drawings (Stage 2) — those are based on your actual site and design, not a handful of multiple-choice answers.
             </p>
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setPage("overview")} style={secondaryBtnStyle(false)}>
-              ← All stages
-            </button>
+            <button onClick={() => setPage("overview")} style={secondaryBtnStyle(false)}>← All stages</button>
           </div>
         </main>
         <LegalFooter setPage={setPage} />
@@ -1409,154 +958,60 @@ export default function App() {
     );
   }
 
-  // ---- Stage detail (signed in, page === "detail") ----
-
   return (
     <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text }}>
-      <header
-        style={{
-          borderBottom: `1px solid ${C.border}`,
-          padding: "18px 24px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 10,
-          background: "rgba(255,255,255,0.85)",
-          backdropFilter: "blur(4px)",
-        }}
-      >
+      <header style={{ borderBottom: `1px solid ${C.border}`, padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, background: "rgba(255,255,255,0.85)", backdropFilter: "blur(4px)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <button onClick={() => setPage("overview")} style={linkBtnStyle}>
-            ← All stages
-          </button>
+          <button onClick={() => setPage("overview")} style={linkBtnStyle}>← All stages</button>
           <div style={{ fontSize: 20, fontWeight: 700 }}>Build Sequence</div>
         </div>
-        <AccountBar session={session} isPaid={isPaid} unlockedStages={unlockedStages} handleSignOut={handleSignOut} />
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <ProgressBadge pct={overallProgress.pct} />
+          <AccountBar session={session} isPaid={isPaid} unlockedStages={unlockedStages} handleSignOut={handleSignOut} />
+        </div>
       </header>
 
       <main style={{ maxWidth: 760, margin: "0 auto", padding: "28px 24px 60px" }}>
-        {/* Stage dropdown + prev/next */}
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 20, flexWrap: "wrap" }}>
-          <select
-            value={active}
-            onChange={(e) => setActive(Number(e.target.value))}
-            style={{
-              ...inputStyle,
-              width: "auto",
-              flex: "1 1 220px",
-              marginBottom: 0,
-              fontFamily: FONT,
-            }}
-          >
+          <select value={active} onChange={(e) => setActive(Number(e.target.value))} style={{ ...inputStyle, width: "auto", flex: "1 1 220px", marginBottom: 0, fontFamily: FONT }}>
             {STAGES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {String(s.id).padStart(2, "0")} — {s.name}
-                {!isUnlocked(s.id) ? " (locked)" : ""}
-              </option>
+              <option key={s.id} value={s.id}>{String(s.id).padStart(2, "0")} — {s.name}{!isUnlocked(s.id) ? " (locked)" : ""}</option>
             ))}
           </select>
-          <button
-            disabled={active === 1}
-            onClick={() => setActive((a) => Math.max(1, a - 1))}
-            style={secondaryBtnStyle(active === 1)}
-          >
-            ← Prev
-          </button>
-          <button
-            disabled={active === STAGES.length}
-            onClick={() => setActive((a) => Math.min(STAGES.length, a + 1))}
-            style={secondaryBtnStyle(active === STAGES.length)}
-          >
-            Next →
-          </button>
+          <button disabled={active === 1} onClick={() => setActive((a) => Math.max(1, a - 1))} style={secondaryBtnStyle(active === 1)}>← Prev</button>
+          <button disabled={active === STAGES.length} onClick={() => setActive((a) => Math.min(STAGES.length, a + 1))} style={secondaryBtnStyle(active === STAGES.length)}>Next →</button>
         </div>
 
-        <div style={{ fontSize: 13, color: C.textDim, marginBottom: 4 }}>
-          Stage {String(stage.id).padStart(2, "0")} of {STAGES.length} · {stage.weight}% of build
-        </div>
+        <div style={{ fontSize: 13, color: C.textDim, marginBottom: 4 }}>Stage {String(stage.id).padStart(2, "0")} of {STAGES.length} · {stage.weight}% of build</div>
         <h2 style={{ fontSize: 26, fontWeight: 700, margin: "0 0 12px" }}>{stage.name}</h2>
         <p style={{ color: C.textDim, lineHeight: 1.6, fontSize: 15.5, marginBottom: 18 }}>
-          {!isUnlocked(stage.id)
-            ? "This stage — checklist, decision branching, and common site errors — is part of the full version, which is still in progress."
-            : dynamicSummary(stage)}
+          {!isUnlocked(stage.id) ? "This stage — checklist, decision branching, and common site errors — is part of the full version, which is still in progress." : dynamicSummary(stage)}
         </p>
 
         {!isUnlocked(stage.id) ? (
-          <div
-            style={{
-              border: `1px solid ${C.warn}`,
-              background: C.warnSoft,
-              borderRadius: 6,
-              padding: 20,
-              maxWidth: 460,
-            }}
-          >
-            <div style={{ fontWeight: 700, color: C.warn, marginBottom: 8 }}>
-              🔒 This stage is locked
-            </div>
+          <div style={{ border: `1px solid ${C.warn}`, background: C.warnSoft, borderRadius: 6, padding: 20, maxWidth: 460 }}>
+            <div style={{ fontWeight: 700, color: C.warn, marginBottom: 8 }}>🔒 This stage is locked</div>
             <p style={{ fontSize: 13.5, color: C.textDim, lineHeight: 1.5, marginBottom: 16 }}>
-              Unlock just this stage, or get all {STAGES.length - FREE_LIMIT} remaining
-              stages together at a discount.
+              Unlock just this stage, or get all {STAGES.length - FREE_LIMIT} remaining stages together at a discount.
             </p>
-
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <button
-                onClick={() => handlePayment("stage", stage.id)}
-                disabled={paying === stage.id}
-                style={secondaryBtnStyle(paying === stage.id)}
-              >
-                {paying === stage.id
-                  ? "Opening checkout..."
-                  : `Unlock this stage — ₦${STAGE_PRICE_NAIRA.toLocaleString()}`}
+              <button onClick={() => handlePayment("stage", stage.id)} disabled={paying === stage.id} style={secondaryBtnStyle(paying === stage.id)}>
+                {paying === stage.id ? "Opening checkout..." : `Unlock this stage — ₦${STAGE_PRICE_NAIRA.toLocaleString()}`}
               </button>
-              <button
-                onClick={() => handlePayment("bundle")}
-                disabled={paying === "bundle"}
-                style={primaryBtnStyle(paying === "bundle")}
-              >
-                {paying === "bundle"
-                  ? "Opening checkout..."
-                  : `Unlock all ${STAGES.length - FREE_LIMIT} remaining stages — ₦${BUNDLE_PRICE_NAIRA.toLocaleString()}`}
+              <button onClick={() => handlePayment("bundle")} disabled={paying === "bundle"} style={primaryBtnStyle(paying === "bundle")}>
+                {paying === "bundle" ? "Opening checkout..." : `Unlock all ${STAGES.length - FREE_LIMIT} remaining stages — ₦${BUNDLE_PRICE_NAIRA.toLocaleString()}`}
               </button>
             </div>
-
-            {payError && (
-              <div style={{ ...errorTextStyle, marginTop: 12 }}>{payError}</div>
-            )}
-
-            <div
-              style={{
-                marginTop: 16,
-                paddingTop: 12,
-                borderTop: `1px solid ${C.border}`,
-              }}
-            >
+            {payError && <div style={{ ...errorTextStyle, marginTop: 12 }}>{payError}</div>}
+            <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
               {waitlistSubmitted ? (
-                <div style={{ color: C.ok, fontSize: 12.5 }}>
-                  ✓ You're also on our email list — thanks.
-                </div>
+                <div style={{ color: C.ok, fontSize: 12.5 }}>✓ You're also on our email list — thanks.</div>
               ) : (
                 <>
-                  <p style={{ fontSize: 12, color: C.textDim, marginBottom: 8 }}>
-                    Not ready to buy yet? Leave your email and we'll let you
-                    know about updates and offers.
-                  </p>
+                  <p style={{ fontSize: 12, color: C.textDim, marginBottom: 8 }}>Not ready to buy yet? Leave your email and we'll let you know about updates and offers.</p>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <input
-                      type="email"
-                      placeholder="you@email.com"
-                      value={waitlistEmail}
-                      onChange={(e) => setWaitlistEmail(e.target.value)}
-                      style={{ ...inputStyle, flex: 1, minWidth: 160, marginBottom: 0, fontSize: 12.5 }}
-                    />
-                    <button
-                      onClick={submitWaitlist}
-                      disabled={waitlistSubmitting}
-                      style={{ ...secondaryBtnStyle(waitlistSubmitting), padding: "8px 12px", fontSize: 12.5 }}
-                    >
-                      {waitlistSubmitting ? "..." : "Notify me"}
-                    </button>
+                    <input type="email" placeholder="you@email.com" value={waitlistEmail} onChange={(e) => setWaitlistEmail(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 160, marginBottom: 0, fontSize: 12.5 }} />
+                    <button onClick={submitWaitlist} disabled={waitlistSubmitting} style={{ ...secondaryBtnStyle(waitlistSubmitting), padding: "8px 12px", fontSize: 12.5 }}>{waitlistSubmitting ? "..." : "Notify me"}</button>
                   </div>
                 </>
               )}
@@ -1565,223 +1020,101 @@ export default function App() {
           </div>
         ) : (
           <>
-            {stage.decisionPoints &&
-              stage.decisionPoints.map((dp, dpIdx) => {
-                const selectedValue = decisions[dp.key];
-                const detailContent = dp.detail && selectedValue ? dp.detail[selectedValue] : null;
-                return (
-                  <div
-                    key={dp.key}
-                    style={{
-                      border: `1px solid ${C.border}`,
-                      background: C.panel,
-                      borderRadius: 6,
-                      padding: 18,
-                      marginBottom: dpIdx === stage.decisionPoints.length - 1 ? 22 : 12,
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-                    }}
-                  >
-                    <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 10 }}>
-                      DECISION POINT
-                    </div>
-                    <div style={{ fontSize: 15, marginBottom: 12 }}>{dp.label}</div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {dp.options.map((opt) => {
-                        const selected = selectedValue === opt.value;
-                        return (
-                          <button
-                            key={opt.value}
-                            onClick={() =>
-                              setDecisions((d) => ({ ...d, [dp.key]: opt.value }))
-                            }
-                            style={{
-                              fontFamily: FONT,
-                              fontSize: 14,
-                              padding: "9px 14px",
-                              border: `1px solid ${selected ? C.accent : C.border}`,
-                              background: selected ? C.accentSoft : C.bg,
-                              color: selected ? C.accent : C.text,
-                              borderRadius: 5,
-                              cursor: "pointer",
-                              fontWeight: selected ? 700 : 400,
-                            }}
-                          >
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {detailContent && (
-                      <div
-                        style={{
-                          marginTop: 14,
-                          paddingTop: 14,
-                          borderTop: `1px solid ${C.border}`,
-                          fontSize: 14,
-                          lineHeight: 1.55,
-                          color: C.text,
-                        }}
-                      >
-                        {Array.isArray(detailContent) ? (
-                          detailContent.map((para, i) => (
-                            <p key={i} style={{ margin: i === 0 ? "0 0 10px" : "10px 0" }}>
-                              {para}
-                            </p>
-                          ))
-                        ) : (
-                          <p style={{ margin: 0 }}>{detailContent}</p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Drawing upload — only on Stage 2's "drawings" decision, once "have" is selected */}
-                    {stage.id === 2 && dp.key === "drawings" && selectedValue === "have" && (
-                      <DrawingUpload session={session} />
-                    )}
+            {stage.decisionPoints && stage.decisionPoints.map((dp, dpIdx) => {
+              const selectedValue = decisions[dp.key];
+              const detailContent = dp.detail && selectedValue ? dp.detail[selectedValue] : null;
+              return (
+                <div key={dp.key} style={{ border: `1px solid ${C.border}`, background: C.panel, borderRadius: 6, padding: 18, marginBottom: dpIdx === stage.decisionPoints.length - 1 ? 22 : 12, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                  <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 10 }}>DECISION POINT</div>
+                  <div style={{ fontSize: 15, marginBottom: 12 }}>{dp.label}</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {dp.options.map((opt) => {
+                      const selected = selectedValue === opt.value;
+                      return (
+                        <button key={opt.value} onClick={() => setDecisions((d) => ({ ...d, [dp.key]: opt.value }))} style={{ fontFamily: FONT, fontSize: 14, padding: "9px 14px", border: `1px solid ${selected ? C.accent : C.border}`, background: selected ? C.accentSoft : C.bg, color: selected ? C.accent : C.text, borderRadius: 5, cursor: "pointer", fontWeight: selected ? 700 : 400 }}>
+                          {opt.label}
+                        </button>
+                      );
+                    })}
                   </div>
-                );
-              })}
-
-            {/* BOQ guidance — cross-stage, needs both land size (Stage 1) and budget (Stage 2) */}
-            {stage.id === 2 && boqGuidance() && (
-              <div
-                style={{
-                  border: `1px solid ${C.border}`,
-                  background: C.yellowSoft,
-                  borderRadius: 6,
-                  padding: 18,
-                  marginBottom: 22,
-                }}
-              >
-                <div style={{ fontSize: 12.5, color: C.accentDim, fontWeight: 700, marginBottom: 10 }}>
-                  BOQ GUIDANCE FOR YOUR PLOT + BUDGET
+                  {detailContent && (
+                    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, fontSize: 14, lineHeight: 1.55, color: C.text }}>
+                      {Array.isArray(detailContent) ? detailContent.map((para, i) => <p key={i} style={{ margin: i === 0 ? "0 0 10px" : "10px 0" }}>{para}</p>) : <p style={{ margin: 0 }}>{detailContent}</p>}
+                    </div>
+                  )}
+                  {stage.id === 2 && dp.key === "drawings" && selectedValue === "have" && <DrawingUpload session={session} />}
                 </div>
-                <p style={{ fontSize: 14, lineHeight: 1.6, color: C.text, margin: 0 }}>
-                  {boqGuidance()}
-                </p>
+              );
+            })}
+
+            {stage.id === 2 && boqGuidance() && (
+              <div style={{ border: `1px solid ${C.border}`, background: C.yellowSoft, borderRadius: 6, padding: 18, marginBottom: 22 }}>
+                <div style={{ fontSize: 12.5, color: C.accentDim, fontWeight: 700, marginBottom: 10 }}>BOQ GUIDANCE FOR YOUR PLOT + BUDGET</div>
+                <p style={{ fontSize: 14, lineHeight: 1.6, color: C.text, margin: 0 }}>{boqGuidance()}</p>
               </div>
             )}
 
-            {/* Deep-dive step-by-step guidance, where a stage has one */}
             {stage.deepDive && (
-              <div
-                style={{
-                  border: `1px solid ${C.border}`,
-                  background: C.panel,
-                  borderRadius: 6,
-                  padding: 18,
-                  marginBottom: 22,
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-                }}
-              >
-                <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 10 }}>
-                  {stage.deepDive.title.toUpperCase()}
-                </div>
+              <div style={{ border: `1px solid ${C.border}`, background: C.panel, borderRadius: 6, padding: 18, marginBottom: 22, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                <div style={{ fontSize: 12.5, color: C.accent, fontWeight: 700, marginBottom: 10 }}>{stage.deepDive.title.toUpperCase()}</div>
                 <ol style={{ margin: 0, paddingLeft: 20 }}>
-                  {stage.deepDive.steps.map((step, i) => (
-                    <li key={i} style={{ fontSize: 14, lineHeight: 1.6, color: C.text, marginBottom: 8 }}>
-                      {step}
-                    </li>
-                  ))}
+                  {stage.deepDive.steps.map((step, i) => <li key={i} style={{ fontSize: 14, lineHeight: 1.6, color: C.text, marginBottom: 8 }}>{step}</li>)}
                 </ol>
               </div>
             )}
 
-            {/* Governing building codes, where a stage has relevant ones */}
             {stage.codeRefs && (
-              <div
-                style={{
-                  border: `1px solid ${C.accent}`,
-                  background: C.accentSoft,
-                  borderRadius: 6,
-                  padding: 18,
-                  marginBottom: 22,
-                }}
-              >
-                <div style={{ fontSize: 12.5, color: C.accentDim, fontWeight: 700, marginBottom: 10 }}>
-                  RELEVANT BUILDING CODES
-                </div>
+              <div style={{ border: `1px solid ${C.accent}`, background: C.accentSoft, borderRadius: 6, padding: 18, marginBottom: 22 }}>
+                <div style={{ fontSize: 12.5, color: C.accentDim, fontWeight: 700, marginBottom: 10 }}>RELEVANT BUILDING CODES</div>
                 {stage.codeRefs.map((c, i) => (
                   <div key={i} style={{ marginBottom: i === stage.codeRefs.length - 1 ? 0 : 12 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{c.code}</div>
-                    <div style={{ fontSize: 13.5, color: C.textDim, lineHeight: 1.5, marginTop: 2 }}>
-                      {c.note}
-                    </div>
+                    <div style={{ fontSize: 13.5, color: C.textDim, lineHeight: 1.5, marginTop: 2 }}>{c.note}</div>
                   </div>
                 ))}
                 <p style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginTop: 12, marginBottom: 0 }}>
-                  These are pointers for orientation, not a substitute for your registered structural engineer confirming
-                  which code governs your specific drawings — and a design should never mix requirements from different
-                  codes on the same element.
+                  These are pointers for orientation, not a substitute for your registered structural engineer confirming which code governs your specific drawings — and a design should never mix requirements from different codes on the same element.
                 </p>
               </div>
             )}
 
             <div style={{ marginBottom: 26 }}>
-              <div style={{ fontSize: 12.5, color: C.textDim, fontWeight: 700, marginBottom: 10 }}>
-                SITE CHECKLIST
-              </div>
+              <div style={{ fontSize: 12.5, color: C.textDim, fontWeight: 700, marginBottom: 10 }}>SITE CHECKLIST</div>
               {stage.checklist.map((item, idx) => {
                 const key = `${stage.id}-${idx}`;
-                const done = !!checks[key];
+                const isLinked = !!item.linkedDecision;
+                const done = isLinked ? !!decisions[item.linkedDecision] : !!checks[key];
                 return (
-                  <label
-                    key={idx}
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 10,
-                      padding: "9px 0",
-                      borderBottom: `1px solid ${C.border}`,
-                      cursor: "pointer",
-                      fontSize: 15,
-                    }}
-                  >
+                  <label key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 0", borderBottom: `1px solid ${C.border}`, cursor: isLinked ? "default" : "pointer", fontSize: 15 }}>
                     <input
                       type="checkbox"
                       checked={done}
-                      onChange={() => toggleCheck(stage.id, idx)}
-                      style={{ marginTop: 3, accentColor: C.accent }}
+                      disabled={isLinked}
+                      onChange={() => toggleCheck(stage.id, idx, isLinked)}
+                      style={{ marginTop: 3, accentColor: C.accent, opacity: isLinked ? 0.7 : 1 }}
                     />
-                    <span style={{ color: done ? C.ok : C.text, lineHeight: 1.45 }}>{item}</span>
+                    <span style={{ color: done ? C.ok : C.text, lineHeight: 1.45 }}>
+                      {item.text}
+                      {isLinked && <span style={{ fontSize: 11.5, color: C.textDim, fontStyle: "italic" }}> — based on your answer above</span>}
+                    </span>
                   </label>
                 );
               })}
             </div>
 
             <div style={{ marginBottom: 30 }}>
-              <div style={{ fontSize: 12.5, color: C.warn, fontWeight: 700, marginBottom: 10 }}>
-                COMMON SITE ERRORS AT THIS STAGE
-              </div>
-              {stage.errors.map((e, i) => (
-                <div key={i} style={{ fontSize: 14.5, color: C.textDim, lineHeight: 1.55, padding: "6px 0" }}>
-                  — {e}
-                </div>
-              ))}
+              <div style={{ fontSize: 12.5, color: C.warn, fontWeight: 700, marginBottom: 10 }}>COMMON SITE ERRORS AT THIS STAGE</div>
+              {stage.errors.map((e, i) => <div key={i} style={{ fontSize: 14.5, color: C.textDim, lineHeight: 1.55, padding: "6px 0" }}>— {e}</div>)}
             </div>
           </>
         )}
 
         <div style={{ display: "flex", gap: 10 }}>
-          <button
-            disabled={active === 1}
-            onClick={() => setActive((a) => Math.max(1, a - 1))}
-            style={secondaryBtnStyle(active === 1)}
-          >
-            ← Prev stage
-          </button>
+          <button disabled={active === 1} onClick={() => setActive((a) => Math.max(1, a - 1))} style={secondaryBtnStyle(active === 1)}>← Prev stage</button>
           {active === STAGES.length ? (
-            <button onClick={() => setPage("summary")} style={primaryBtnStyle(false)}>
-              View project summary →
-            </button>
+            <button onClick={() => setPage("summary")} style={primaryBtnStyle(false)}>View project summary →</button>
           ) : (
-            <button
-              onClick={() => setActive((a) => Math.min(STAGES.length, a + 1))}
-              style={secondaryBtnStyle(false)}
-            >
-              Next stage →
-            </button>
+            <button onClick={() => setActive((a) => Math.min(STAGES.length, a + 1))} style={secondaryBtnStyle(false)}>Next stage →</button>
           )}
         </div>
       </main>
@@ -1790,74 +1123,17 @@ export default function App() {
   );
 }
 
-/**
- * AuthPanel / AccountBar — defined OUTSIDE App() on purpose.
- *
- * Bug this fixes: when a component like this was defined *inside*
- * App() (as `const AuthPanel = () => (...)`), a brand-new function —
- * and therefore a brand-new component type, as far as React is
- * concerned — was created on every single App() re-render. Typing one
- * character into the email field changes state, which re-renders
- * App(), which redefines AuthPanel from scratch, which makes React
- * unmount the old <input> and mount a fresh one. On mobile that
- * unmount/remount is exactly what dismisses the keyboard after every
- * keystroke. Defining these as stable, top-level components (and
- * passing state in as props instead of closing over it) keeps their
- * identity fixed across renders, so the <input> element itself is
- * never torn down — focus and the keyboard stay put.
- */
-function AuthPanel({
-  authMode,
-  setAuthMode,
-  authEmail,
-  setAuthEmail,
-  authPassword,
-  setAuthPassword,
-  authLoading,
-  authError,
-  authInfo,
-  handleAuth,
-}) {
+function AuthPanel({ authMode, setAuthMode, authEmail, setAuthEmail, authPassword, setAuthPassword, authLoading, authError, authInfo, handleAuth }) {
   return (
     <div style={{ maxWidth: 360 }}>
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        <button
-          onClick={() => setAuthMode("signin")}
-          style={tabBtnStyle(authMode === "signin")}
-        >
-          SIGN IN
-        </button>
-        <button
-          onClick={() => setAuthMode("signup")}
-          style={tabBtnStyle(authMode === "signup")}
-        >
-          CREATE ACCOUNT
-        </button>
+        <button onClick={() => setAuthMode("signin")} style={tabBtnStyle(authMode === "signin")}>SIGN IN</button>
+        <button onClick={() => setAuthMode("signup")} style={tabBtnStyle(authMode === "signup")}>CREATE ACCOUNT</button>
       </div>
-      <input
-        type="email"
-        placeholder="you@email.com"
-        value={authEmail}
-        onChange={(e) => setAuthEmail(e.target.value)}
-        style={inputStyle}
-      />
-      <input
-        type="password"
-        placeholder="password (6+ characters)"
-        value={authPassword}
-        onChange={(e) => setAuthPassword(e.target.value)}
-        style={{ ...inputStyle, marginBottom: 12 }}
-      />
-      <button
-        onClick={handleAuth}
-        disabled={authLoading}
-        style={primaryBtnStyle(authLoading)}
-      >
-        {authLoading
-          ? "..."
-          : authMode === "signup"
-          ? "Create account"
-          : "Sign in"}
+      <input type="email" placeholder="you@email.com" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} style={inputStyle} />
+      <input type="password" placeholder="password (6+ characters)" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }} />
+      <button onClick={handleAuth} disabled={authLoading} style={primaryBtnStyle(authLoading)}>
+        {authLoading ? "..." : authMode === "signup" ? "Create account" : "Sign in"}
       </button>
       {authError && <div style={errorTextStyle}>{authError}</div>}
       {authInfo && <div style={infoTextStyle}>{authInfo}</div>}
@@ -1867,80 +1143,41 @@ function AuthPanel({
 
 function AccountBar({ session, isPaid, unlockedStages, handleSignOut }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 14,
-        fontSize: 13,
-        color: C.textDim,
-      }}
-    >
+    <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 13, color: C.textDim }}>
       <span>
         {session?.user?.email}{" "}
-        {isPaid
-          ? "· Full access"
-          : unlockedStages.length > 0
-          ? `· ${unlockedStages.length} stage${
-              unlockedStages.length > 1 ? "s" : ""
-            } unlocked`
-          : "· Free"}
+        {isPaid ? "· Full access" : unlockedStages.length > 0 ? `· ${unlockedStages.length} stage${unlockedStages.length > 1 ? "s" : ""} unlocked` : "· Free"}
       </span>
-      <button onClick={handleSignOut} style={linkBtnStyle}>
-        Sign out
-      </button>
+      <button onClick={handleSignOut} style={linkBtnStyle}>Sign out</button>
     </div>
   );
 }
 
-/**
- * LegalFooter — small "Terms · Privacy" link row shown at the bottom
- * of every page. Top-level component (not defined inside App()) for
- * the same stability reason as AuthPanel/AccountBar.
- */
+function ProgressBadge({ pct }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ width: 60, height: 6, background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: C.accent, transition: "width 0.25s ease" }} />
+      </div>
+      <span style={{ fontSize: 12, color: C.textDim, fontFamily: FONT }}>{pct}%</span>
+    </div>
+  );
+}
+
 function LegalFooter({ setPage }) {
   return (
-    <div
-      style={{
-        maxWidth: 900,
-        margin: "40px auto 0",
-        padding: "16px 24px",
-        borderTop: `1px solid ${C.border}`,
-        display: "flex",
-        gap: 16,
-        fontSize: 12.5,
-        color: C.textDim,
-      }}
-    >
-      <button onClick={() => setPage("terms")} style={linkBtnStyle}>
-        Terms of Service
-      </button>
-      <button onClick={() => setPage("privacy")} style={linkBtnStyle}>
-        Privacy Policy
-      </button>
+    <div style={{ maxWidth: 900, margin: "40px auto 0", padding: "16px 24px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 16, fontSize: 12.5, color: C.textDim }}>
+      <button onClick={() => setPage("terms")} style={linkBtnStyle}>Terms of Service</button>
+      <button onClick={() => setPage("privacy")} style={linkBtnStyle}>Privacy Policy</button>
     </div>
   );
 }
 
-/**
- * LegalPage — shared renderer for the Terms and Privacy pages, which
- * both use the same { title, updated, sections: [{heading, body}] }
- * shape (TERMS_CONTENT / PRIVACY_CONTENT above).
- */
 function LegalPage({ content, onBack }) {
   return (
     <div style={{ minHeight: "100vh", background: C.bg, backgroundImage: BG_WASH, fontFamily: FONT, color: C.text }}>
-      <header
-        style={{
-          borderBottom: `1px solid ${C.border}`,
-          padding: "18px 24px",
-          background: "rgba(255,255,255,0.85)",
-          backdropFilter: "blur(4px)",
-        }}
-      >
-        <button onClick={onBack} style={linkBtnStyle}>
-          ← Back
-        </button>
+      <header style={{ borderBottom: `1px solid ${C.border}`, padding: "18px 24px", background: "rgba(255,255,255,0.85)", backdropFilter: "blur(4px)" }}>
+        <button onClick={onBack} style={linkBtnStyle}>← Back</button>
       </header>
       <main style={{ maxWidth: 640, margin: "0 auto", padding: "32px 24px 80px" }}>
         <h2 style={{ fontSize: 26, fontWeight: 700, margin: "0 0 4px" }}>{content.title}</h2>
@@ -1948,11 +1185,7 @@ function LegalPage({ content, onBack }) {
         {content.sections.map((s, i) => (
           <div key={i} style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>{s.heading}</div>
-            {s.body.map((p, j) => (
-              <p key={j} style={{ fontSize: 14, lineHeight: 1.6, color: C.textDim, margin: "0 0 8px" }}>
-                {p}
-              </p>
-            ))}
+            {s.body.map((p, j) => <p key={j} style={{ fontSize: 14, lineHeight: 1.6, color: C.textDim, margin: "0 0 8px" }}>{p}</p>)}
           </div>
         ))}
       </main>
@@ -1960,17 +1193,6 @@ function LegalPage({ content, onBack }) {
   );
 }
 
-/**
- * DrawingUpload — lets a user attach their own architectural/structural
- * drawing files to their account via Supabase Storage. Defined at top
- * level for the same reason as AuthPanel/AccountBar (stable identity
- * across re-renders, so the file input doesn't get torn down).
- *
- * Requires a Storage bucket named "drawings" plus per-user folder
- * policies — see supabase-storage-drawings-setup.sql for the one-time
- * setup. Files are stored under a path of `${user.id}/...`, and the
- * storage policies restrict each user to their own folder.
- */
 function DrawingUpload({ session }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -1986,11 +1208,7 @@ function DrawingUpload({ session }) {
     const { error } = await supabase.storage.from("drawings").upload(path, file);
     setUploading(false);
     if (error) {
-      setUploadError(
-        "Upload failed — this usually means the 'drawings' storage bucket isn't set up yet on this project. (" +
-          error.message +
-          ")"
-      );
+      setUploadError("Upload failed — this usually means the 'drawings' storage bucket isn't set up yet on this project. (" + error.message + ")");
       return;
     }
     setUploadedName(file.name);
@@ -1998,32 +1216,20 @@ function DrawingUpload({ session }) {
 
   return (
     <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
-      <input
-        type="file"
-        accept=".pdf,.dwg,.jpg,.jpeg,.png"
-        onChange={handleFile}
-        style={{ fontFamily: FONT, fontSize: 13 }}
-      />
-      {uploading && (
-        <div style={{ fontSize: 12.5, color: C.textDim, marginTop: 8 }}>Uploading…</div>
-      )}
-      {uploadedName && (
-        <div style={{ fontSize: 12.5, color: C.ok, marginTop: 8 }}>
-          ✓ {uploadedName} uploaded and attached to your account.
-        </div>
-      )}
+      <input type="file" accept=".pdf,.dwg,.jpg,.jpeg,.png" onChange={handleFile} style={{ fontFamily: FONT, fontSize: 13 }} />
+      {uploading && <div style={{ fontSize: 12.5, color: C.textDim, marginTop: 8 }}>Uploading…</div>}
+      {uploadedName && <div style={{ fontSize: 12.5, color: C.ok, marginTop: 8 }}>✓ {uploadedName} uploaded and attached to your account.</div>}
       {uploadError && <div style={errorTextStyle}>{uploadError}</div>}
     </div>
   );
 }
 
-/* ---------- Shared style helpers ---------- */
 const inputStyle = {
   display: "block",
   width: "100%",
   boxSizing: "border-box",
   background: "#FFFFFF",
-  border: `1px solid ${C_border()}`,
+  border: "1px solid #DDE1E6",
   color: "#1B1F24",
   padding: "10px 12px",
   fontSize: 14,
@@ -2031,73 +1237,40 @@ const inputStyle = {
   marginBottom: 10,
 };
 
-function C_border() {
-  return "#DDE1E6";
-}
-
 function tabBtnStyle(active) {
   return {
-    fontFamily: FONT,
-    fontSize: 12.5,
-    padding: "7px 12px",
+    fontFamily: FONT, fontSize: 12.5, padding: "7px 12px",
     border: `1px solid ${active ? "#1D4ED8" : "#DDE1E6"}`,
     background: active ? "rgba(29,78,216,0.08)" : "transparent",
     color: active ? "#1D4ED8" : "#5B6472",
-    borderRadius: 5,
-    cursor: "pointer",
-    fontWeight: active ? 700 : 400,
+    borderRadius: 5, cursor: "pointer", fontWeight: active ? 700 : 400,
   };
 }
 
 function primaryBtnStyle(disabled) {
   return {
-    fontFamily: FONT,
-    fontSize: 14,
-    padding: "10px 16px",
+    fontFamily: FONT, fontSize: 14, padding: "10px 16px",
     background: disabled ? "#9CA8C4" : "#1D4ED8",
-    border: "none",
-    color: "#FFFFFF",
-    borderRadius: 5,
-    cursor: disabled ? "not-allowed" : "pointer",
-    fontWeight: 700,
+    border: "none", color: "#FFFFFF", borderRadius: 5,
+    cursor: disabled ? "not-allowed" : "pointer", fontWeight: 700,
   };
 }
 
 function secondaryBtnStyle(disabled) {
   return {
-    fontFamily: FONT,
-    fontSize: 14,
-    padding: "9px 15px",
+    fontFamily: FONT, fontSize: 14, padding: "9px 15px",
     background: disabled ? "#F0F1F3" : "#FFFFFF",
     border: `1px solid ${disabled ? "#DDE1E6" : "#C3C9D1"}`,
     color: disabled ? "#9AA2AC" : "#1B1F24",
-    borderRadius: 5,
-    cursor: disabled ? "not-allowed" : "pointer",
+    borderRadius: 5, cursor: disabled ? "not-allowed" : "pointer",
   };
 }
 
 const linkBtnStyle = {
-  background: "none",
-  border: "none",
-  color: "#5B6472",
-  textDecoration: "underline",
-  cursor: "pointer",
-  fontFamily: FONT,
-  fontSize: 13,
-  padding: 0,
+  background: "none", border: "none", color: "#5B6472",
+  textDecoration: "underline", cursor: "pointer",
+  fontFamily: FONT, fontSize: 13, padding: 0,
 };
 
-const errorTextStyle = {
-  color: "#B91C1C",
-  fontSize: 12.5,
-  marginTop: 8,
-  fontFamily: FONT,
-};
-
-const infoTextStyle = {
-  color: "#15803D",
-  fontSize: 12.5,
-  marginTop: 8,
-  fontFamily: FONT,
-  lineHeight: 1.4,
-};
+const errorTextStyle = { color: "#B91C1C", fontSize: 12.5, marginTop: 8, fontFamily: FONT };
+const infoTextStyle = { color: "#15803D", fontSize: 12.5, marginTop: 8, fontFamily: FONT, lineHeight: 1.4 };
